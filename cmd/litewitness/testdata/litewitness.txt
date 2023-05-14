@@ -1,0 +1,170 @@
+# gentest seed b4e385f4358f7373cfa9184b176f3cccf808e795baf04092ddfde9461014f0c4
+
+# set up log
+exec witnessctl add-sigsum-log -key=ffdc2d4d98e4124d3feaf788c0c2f9abfd796083d1f0495437f302ec79cf100f
+
+# start ssh-agent
+env SSH_AUTH_SOCK=$WORK/s # barely below the max path length
+! exec ssh-agent -a $SSH_AUTH_SOCK -D & # ssh-agent always exits 2
+waitfor $SSH_AUTH_SOCK
+chmod 600 other_key.pem
+exec ssh-add other_key.pem
+chmod 600 witness_key.pem
+exec ssh-add witness_key.pem
+
+# start litewitness
+exec litewitness -ssh-agent=$SSH_AUTH_SOCK -key=SHA256:qN8i2UyuC/Wj385YWLeXbPhzOit5TJjPfr+96czdCyA &litewitness&
+waitfor localhost:7380
+
+# add-tree-head
+exec hurl --test add-tree-head.hurl
+
+# check that litewitness didn't log any error
+killall
+wait litewitness
+! stderr .
+
+# witnessctl list-logs
+exec witnessctl list-logs
+stdout sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
+stdout "size":5
+
+
+-- witness_key.pem --
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtz
+c2gtZWQyNTUxOQAAACBUSuJJ3eZQ/JzVOA87PeC6BcuuYZBoJbeF9SLdOrN2xgAA
+AIgcs4MlHLODJQAAAAtzc2gtZWQyNTUxOQAAACBUSuJJ3eZQ/JzVOA87PeC6Bcuu
+YZBoJbeF9SLdOrN2xgAAAEAx/8IRbsvgA6yqgAq3B1e9fVMgbj/r72ptB5bZVTCz
+T1RK4knd5lD8nNU4Dzs94LoFy65hkGglt4X1It06s3bGAAAAAAECAwQF
+-----END OPENSSH PRIVATE KEY-----
+
+
+-- other_key.pem --
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtz
+c2gtZWQyNTUxOQAAACCA9lu1D7BJqjRG4clPT+0MG2a+RyCqfKWSUU04ztmTlAAA
+AIghhtIAIYbSAAAAAAtzc2gtZWQyNTUxOQAAACCA9lu1D7BJqjRG4clPT+0MG2a+
+RyCqfKWSUU04ztmTlAAAAECz7zYOgVpR2ryeIEIi6JZtD/OIF6/J24F//fp3EipL
++ID2W7UPsEmqNEbhyU9P7QwbZr5HIKp8pZJRTTjO2ZOUAAAAAAECAwQF
+-----END OPENSSH PRIVATE KEY-----
+
+
+-- add-tree-head.hurl --
+POST http://localhost:7380/sigsum/v1/add-tree-head
+```
+key_hash=4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
+size=1
+root_hash=2a00000000000000000000000000000000000000000000000000000000000000
+signature=b7cf653aa9c565a1ca359db81bd3bc656ab2890c6ea4c0aec42295e80aa05049423505026434f987923ccdf07d440c152cd59e736e5914d8ada8d7a4d51b2106
+old_size=0
+```
+HTTP 200
+[Asserts]
+body contains "cosignature="
+
+
+POST http://localhost:7380/sigsum/v1/add-tree-head
+```
+key_hash=4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
+size=3
+root_hash=45c088d4d939e9971298811f227d1295eaad57bbafae55cd71c171e7de48c25d
+signature=655bb4871d15bc05032d67eece88900c4863a27f190393b99176391577f5def971b023d9a418c3226b7b7ea47b33686d9b3849451dadc6b07c007c595af1ea0b
+old_size=1
+node_hash=2a01000000000000000000000000000000000000000000000000000000000000
+node_hash=2a02000000000000000000000000000000000000000000000000000000000000
+```
+HTTP 403
+[Asserts]
+body contains "invalid signature"
+
+
+POST http://localhost:7380/sigsum/v1/add-tree-head
+```
+key_hash=4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e561
+size=3
+root_hash=45c088d4d939e9971298811f227d1295eaad57bbafae55cd71c171e7de48c25d
+signature=655bb4871d15bc05032d67eece88900c4863a27f190393b99176391577f5def971b023d9a418c3226b7b7ea47b33686d9b3849451dadc6b07c007c595af1ea0a
+old_size=1
+node_hash=2a01000000000000000000000000000000000000000000000000000000000000
+node_hash=2a02000000000000000000000000000000000000000000000000000000000000
+```
+HTTP 403
+[Asserts]
+body contains "unknown log"
+
+
+POST http://localhost:7380/sigsum/v1/add-tree-head
+```
+key_hash=4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
+size=3
+root_hash=45c088d4d939e9971298811f227d1295eaad57bbafae55cd71c171e7de48c25d
+signature=655bb4871d15bc05032d67eece88900c4863a27f190393b99176391577f5def971b023d9a418c3226b7b7ea47b33686d9b3849451dadc6b07c007c595af1ea0a
+old_size=1
+```
+HTTP 422
+[Asserts]
+body contains "consistency proof"
+
+
+POST http://localhost:7380/sigsum/v1/add-tree-head
+```
+key_hash=4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
+size=3
+root_hash=45c088d4d939e9971298811f227d1295eaad57bbafae55cd71c171e7de48c25d
+signature=655bb4871d15bc05032d67eece88900c4863a27f190393b99176391577f5def971b023d9a418c3226b7b7ea47b33686d9b3849451dadc6b07c007c595af1ea0a
+old_size=1
+node_hash=2a01000000000000000000000000000000000000000000000000000000000000
+node_hash=2a02000000000000000000000000000000000000000000000000000000000001
+```
+HTTP 422
+[Asserts]
+body contains "consistency proof"
+
+
+POST http://localhost:7380/sigsum/v1/add-tree-head
+```
+key_hash=4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
+size=3
+root_hash=45c088d4d939e9971298811f227d1295eaad57bbafae55cd71c171e7de48c25d
+signature=655bb4871d15bc05032d67eece88900c4863a27f190393b99176391577f5def971b023d9a418c3226b7b7ea47b33686d9b3849451dadc6b07c007c595af1ea0a
+old_size=1
+node_hash=2a01000000000000000000000000000000000000000000000000000000000000
+node_hash=2a02000000000000000000000000000000000000000000000000000000000000
+```
+HTTP 200
+[Asserts]
+body contains "cosignature="
+
+
+POST http://localhost:7380/sigsum/v1/add-tree-head
+```
+key_hash=4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
+size=5
+root_hash=42bb57ad06420afa4882c4a63ac6a1ec77480b330b2f20dfc53a0caa5f564e36
+signature=0fc43899968b48b5150b0e8fe7ad07b17c21c7056a6fe381deb0cd19ece103d59b2119b5dbe5d54d8a1262ce67f01245c5898b4b56f747495804a17a2eec0f0c
+old_size=1
+node_hash=2a01000000000000000000000000000000000000000000000000000000000000
+node_hash=f9f50357e93def4078237b8aaea24ce1a3f5965a0f64ff26bebd99e30470d8b2
+node_hash=2a04000000000000000000000000000000000000000000000000000000000000
+```
+HTTP 409
+[Asserts]
+body contains "tree size"
+
+
+POST http://localhost:7380/sigsum/v1/add-tree-head
+```
+key_hash=4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
+size=5
+root_hash=42bb57ad06420afa4882c4a63ac6a1ec77480b330b2f20dfc53a0caa5f564e36
+signature=0fc43899968b48b5150b0e8fe7ad07b17c21c7056a6fe381deb0cd19ece103d59b2119b5dbe5d54d8a1262ce67f01245c5898b4b56f747495804a17a2eec0f0c
+old_size=3
+node_hash=2a02000000000000000000000000000000000000000000000000000000000000
+node_hash=2a03000000000000000000000000000000000000000000000000000000000000
+node_hash=c2088815d65f60dbfa594d4e96504ab169cb6084bf0c132ab7c521fd2e0eba41
+node_hash=2a04000000000000000000000000000000000000000000000000000000000000
+```
+HTTP 200
+[Asserts]
+body contains "cosignature="
