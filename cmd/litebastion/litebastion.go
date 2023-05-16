@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
 	"time"
@@ -49,8 +50,11 @@ func main() {
 	var getCertificate func(hello *tls.ClientHelloInfo) (*tls.Certificate, error)
 	if *testCertificates {
 		cert, err := tls.LoadX509KeyPair("localhost.pem", "localhost-key.pem")
+		if err != nil {
+			log.Fatalf("Can't load test certificates: %v", err)
+		}
 		getCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-			return &cert, err
+			return &cert, nil
 		}
 	} else {
 		if *autocertCache == "" || *autocertHost == "" || *autocertEmail == "" {
@@ -154,8 +158,19 @@ func main() {
 	if err := http2.ConfigureServer(hs, nil); err != nil {
 		log.Fatalln("Failed to configure HTTP/2:", err)
 	}
-	log.Printf("Serving at https://%s...", *listenAddr)
-	hs.ListenAndServeTLS("", "")
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	e := make(chan error, 1)
+	go func() { e <- hs.ListenAndServeTLS("", "") }()
+	select {
+	case <-ctx.Done():
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		hs.Shutdown(ctx)
+	case err := <-e:
+		log.Fatalf("Server error: %v", err)
+	}
 }
 
 type backendConnectionsPool struct {

@@ -33,6 +33,7 @@ func TestScript(t *testing.T) {
 				cmd.Args = append(cmd.Args, "-cover")
 			}
 			cmd.Args = append(cmd.Args, "filippo.io/litetlog/cmd/witnessctl")
+			cmd.Args = append(cmd.Args, "filippo.io/litetlog/cmd/litebastion")
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			return cmd.Run()

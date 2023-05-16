@@ -6,17 +6,15 @@ import (
 	"sync"
 	"testing"
 
-	"golang.org/x/crypto/ssh"
 	"golang.org/x/mod/sumdb/tlog"
 	sigsum "sigsum.org/sigsum-go/pkg/crypto"
 )
 
 func TestRace(t *testing.T) {
 	// gentest seed b4e385f4358f7373cfa9184b176f3cccf808e795baf04092ddfde9461014f0c4
-	ss, err := ssh.NewSignerFromSigner(ed25519.PrivateKey(mustDecodeHex(t,
+	ss := ed25519.PrivateKey(mustDecodeHex(t,
 		"31ffc2116ecbe003acaa800ab70757bd7d53206e3febef6a6d0796d95530b34f"+
-			"544ae249dde650fc9cd5380f3b3de0ba05cbae61906825b785f522dd3ab376c6")))
-	fatalIfErr(t, err)
+			"544ae249dde650fc9cd5380f3b3de0ba05cbae61906825b785f522dd3ab376c6"))
 	w, err := NewWitness(":memory:", ss, t.Logf)
 	fatalIfErr(t, err)
 	t.Cleanup(func() { w.Close() })

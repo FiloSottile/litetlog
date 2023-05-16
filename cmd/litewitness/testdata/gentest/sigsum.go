@@ -1,3 +1,6 @@
+// Run with "go run -mod=mod ./cmd/litewitness/testdata/gentest"
+// and re-run "go mod tidy" after use to clean up its dependencies.
+
 package main
 
 import (

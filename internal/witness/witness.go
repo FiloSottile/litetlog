@@ -1,6 +1,7 @@
 package witness
 
 import (
+	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -14,7 +15,6 @@ import (
 
 	"crawshaw.io/sqlite"
 	"crawshaw.io/sqlite/sqlitex"
-	"golang.org/x/crypto/ssh"
 	"golang.org/x/mod/sumdb/tlog"
 	"sigsum.org/sigsum-go/pkg/ascii"
 	sigsum "sigsum.org/sigsum-go/pkg/crypto"
@@ -23,7 +23,7 @@ import (
 
 type Witness struct {
 	db  *sqlite.Conn
-	s   ssh.Signer
+	s   crypto.Signer
 	mux *http.ServeMux
 	log func(format string, v ...any)
 
@@ -33,7 +33,7 @@ type Witness struct {
 	testingOnlyStallRequest func()
 }
 
-func NewWitness(dbPath string, s ssh.Signer, log func(format string, v ...any)) (*Witness, error) {
+func NewWitness(dbPath string, s crypto.Signer, log func(format string, v ...any)) (*Witness, error) {
 	db, err := sqlite.OpenConn(dbPath, 0)
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %v", err)
@@ -142,9 +142,9 @@ func (w *Witness) serveAddTreeHead(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pub, err := w.publicKey()
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
+	pub, ok := w.s.Public().(ed25519.PublicKey)
+	if !ok {
+		http.Error(rw, "invalid key type", http.StatusInternalServerError)
 		return
 	}
 
@@ -265,23 +265,6 @@ func serializeCosignatureSignedData(t time.Time, origin string, size int64, hash
 	return []byte(fmt.Sprintf("cosignature/v1\ntime %d\n%s\n%d\n%s\n", t.Unix(), origin, size, hash))
 }
 
-func (w *Witness) publicKey() (ed25519.PublicKey, error) {
-	// agent.Key doesn't implement ssh.CryptoPublicKey.
-	pubKey, err := ssh.ParsePublicKey(w.s.PublicKey().Marshal())
-	if err != nil {
-		return nil, errors.New("internal error: ssh public key can't be parsed")
-	}
-	k, ok := pubKey.(ssh.CryptoPublicKey)
-	if !ok {
-		return nil, errors.New("internal error: ssh public key can't be retrieved")
-	}
-	key, ok := k.CryptoPublicKey().(ed25519.PublicKey)
-	if !ok {
-		return nil, errors.New("internal error: ssh public key of unknown type")
-	}
-	return key, nil
-}
-
 func (w *Witness) checkConsistency(origin string,
 	oldSize, newSize int64, newHash tlog.Hash, proof tlog.TreeProof) error {
 	if oldSize > newSize {
@@ -306,11 +289,11 @@ func (w *Witness) checkConsistency(origin string,
 
 func (w *Witness) signTreeHead(origin string, size int64, h tlog.Hash, t time.Time) ([]byte, error) {
 	signedData := serializeCosignatureSignedData(t, origin, size, h)
-	sig, err := w.s.Sign(rand.Reader, signedData)
+	sig, err := w.s.Sign(rand.Reader, signedData, crypto.Hash(0))
 	if err != nil {
 		return nil, err
 	}
-	return sig.Blob, nil
+	return sig, nil
 }
 
 func (w *Witness) persistTreeHead(origin string, oldSize, newSize int64, newHash tlog.Hash) (t time.Time, err error) {
