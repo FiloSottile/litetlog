@@ -13,7 +13,7 @@ chmod 600 witness_key.pem
 exec ssh-add witness_key.pem
 
 # start litewitness
-exec litewitness -ssh-agent=$SSH_AUTH_SOCK -key=SHA256:qN8i2UyuC/Wj385YWLeXbPhzOit5TJjPfr+96czdCyA &litewitness&
+exec litewitness -ssh-agent=$SSH_AUTH_SOCK -key=abb32fdba1d05fc08c94c58a8da87a61216a856feb28e4e5375aae858b0a939d &litewitness&
 waitfor localhost:7380
 
 # add-tree-head

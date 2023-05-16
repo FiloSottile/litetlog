@@ -53,7 +53,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("- witness key fingerprint: %s\n", ssh.FingerprintSHA256(ss.PublicKey()))
+	pkHash := sigsum.HashBytes(ss.PublicKey().(ssh.CryptoPublicKey).CryptoPublicKey().(ed25519.PublicKey))
+	fmt.Printf("- witness key hash: %s\n", hex.EncodeToString(pkHash[:]))
 	fmt.Printf("- witness key: %x\n", witKey)
 	pemBytes := pem.EncodeToMemory(&pem.Block{
 		Type:  "OPENSSH PRIVATE KEY",

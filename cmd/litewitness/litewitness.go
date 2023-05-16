@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"flag"
 	"log"
 	"net"
@@ -19,7 +23,7 @@ import (
 var dbFlag = flag.String("db", "litewitness.db", "path to sqlite database")
 var sshAgentFlag = flag.String("ssh-agent", "litewitness.sock", "path to ssh-agent socket")
 var listenFlag = flag.String("listen", "localhost:7380", "address to listen for HTTP requests")
-var keyFlag = flag.String("key", "", "SSH fingerprint of the witness key")
+var keyFlag = flag.String("key", "", "hex-encoded SHA-256 hash of the witness key")
 
 func main() {
 	flag.Parse()
@@ -35,17 +39,20 @@ func main() {
 		log.Fatalf("getting keys from ssh-agent: %v", err)
 	}
 	var signer ssh.Signer
-	var fingerprints []string
+	var keys []string
 	for _, s := range signers {
-		fingerprint := ssh.FingerprintSHA256(s.PublicKey())
-		if fingerprint == *keyFlag {
+		h, err := hashPublicKey(s.PublicKey())
+		if err != nil {
+			continue
+		}
+		if h == *keyFlag {
 			signer = s
 			break
 		}
-		fingerprints = append(fingerprints, fingerprint)
+		keys = append(keys, h)
 	}
 	if signer == nil {
-		log.Fatalf("ssh-agent does not contain key %q, only %q", *keyFlag, fingerprints)
+		log.Fatalf("ssh-agent does not contain Ed25519 key %q, only %q", *keyFlag, keys)
 	}
 
 	w, err := witness.NewWitness(*dbFlag, signer, log.Printf)
@@ -72,4 +79,22 @@ func main() {
 		log.Fatalf("error shutting down: %v", err)
 	}
 	cancel()
+}
+
+func hashPublicKey(k ssh.PublicKey) (string, error) {
+	// agent.Key doesn't implement ssh.CryptoPublicKey.
+	pubKey, err := ssh.ParsePublicKey(k.Marshal())
+	if err != nil {
+		panic("internal error: ssh public key can't be parsed")
+	}
+	ck, ok := pubKey.(ssh.CryptoPublicKey)
+	if !ok {
+		panic("internal error: ssh public key can't be retrieved")
+	}
+	key, ok := ck.CryptoPublicKey().(ed25519.PublicKey)
+	if !ok {
+		return "", errors.New("internal error: ssh public key type is not Ed25519")
+	}
+	h := sha256.Sum256(key)
+	return hex.EncodeToString(h[:]), nil
 }

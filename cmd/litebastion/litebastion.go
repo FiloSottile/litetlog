@@ -38,7 +38,7 @@ var testCertificates = flag.Bool("testcert", false, "use localhost.pem and local
 var autocertCache = flag.String("cache", "", "directory to cache ACME certificates at")
 var autocertHost = flag.String("host", "", "host to obtain ACME certificate for")
 var autocertEmail = flag.String("email", "", "")
-var allowedBackendsFile = flag.String("backends", "", "file listing accepted key hashes, one per line")
+var allowedBackendsList = flag.String("backends", "", "accepted key hashes, comma separated")
 
 type keyHash [sha256.Size]byte
 
@@ -65,15 +65,11 @@ func main() {
 		getCertificate = m.GetCertificate
 	}
 
-	if *allowedBackendsFile == "" {
+	if *allowedBackendsList == "" {
 		log.Fatal("-backends is empty")
 	}
-	bs, err := os.ReadFile(*allowedBackendsFile)
-	if err != nil {
-		log.Fatalln("Failed to read backends file:", err)
-	}
 	allowedBackends := make(map[keyHash]bool)
-	for _, line := range strings.Split(strings.TrimSpace(string(bs)), "\n") {
+	for _, line := range strings.Split(*allowedBackendsList, ",") {
 		l, err := hex.DecodeString(line)
 		if err != nil {
 			log.Fatalf("Invalid backend: %q", line)
