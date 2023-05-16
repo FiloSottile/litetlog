@@ -13,7 +13,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/mikesmitty/edkey"
+	"github.com/caarlos0/sshmarshal"
 	"golang.org/x/crypto/hkdf"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/mod/sumdb/tlog"
@@ -50,8 +50,9 @@ func main() {
 	fmt.Printf("- log key hash: %x\n", keyHash)
 	origin := fmt.Sprintf("sigsum.org/v1/tree/%x", keyHash)
 
-	witKey := ed25519.PrivateKey(make([]byte, ed25519.PrivateKeySize))
-	h.Read(witKey)
+	witSeed := make([]byte, ed25519.SeedSize)
+	h.Read(witSeed)
+	witKey := ed25519.NewKeyFromSeed(witSeed)
 	ss, err := ssh.NewSignerFromSigner(witKey)
 	if err != nil {
 		log.Fatal(err)
@@ -59,11 +60,11 @@ func main() {
 	pkHash := sigsum.HashBytes(ss.PublicKey().(ssh.CryptoPublicKey).CryptoPublicKey().(ed25519.PublicKey))
 	fmt.Printf("- witness key hash: %s\n", hex.EncodeToString(pkHash[:]))
 	fmt.Printf("- witness key: %x\n", witKey)
-	pemBytes := pem.EncodeToMemory(&pem.Block{
-		Type:  "OPENSSH PRIVATE KEY",
-		Bytes: edkey.MarshalED25519PrivateKey(witKey),
-	})
-	fmt.Printf("- witness key:\n%s", pemBytes)
+	pemKey, err := sshmarshal.MarshalPrivateKey(witKey, "")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("- witness key:\n%s", pem.EncodeToMemory(pemKey))
 
 	tree := merkle.NewTree()
 	rootHash := func() {

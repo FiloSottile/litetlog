@@ -11,7 +11,7 @@ chmod 600 witness_key.pem
 exec ssh-add witness_key.pem
 
 # start litewitness
-exec litewitness -listen=localhost:7381 -ssh-agent=$SSH_AUTH_SOCK -key=abb32fdba1d05fc08c94c58a8da87a61216a856feb28e4e5375aae858b0a939d &litewitness&
+exec litewitness -listen=localhost:7381 -ssh-agent=$SSH_AUTH_SOCK -key=e933707e0e36c30f01d94b5d81e742da373679d88eb0f85f959ccd80b83b992a &litewitness&
 waitfor localhost:7381
 
 # first leaf
@@ -56,10 +56,10 @@ wait litewitness
 -- witness_key.pem --
 -----BEGIN OPENSSH PRIVATE KEY-----
 b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtz
-c2gtZWQyNTUxOQAAACBUSuJJ3eZQ/JzVOA87PeC6BcuuYZBoJbeF9SLdOrN2xgAA
-AIgcs4MlHLODJQAAAAtzc2gtZWQyNTUxOQAAACBUSuJJ3eZQ/JzVOA87PeC6Bcuu
-YZBoJbeF9SLdOrN2xgAAAEAx/8IRbsvgA6yqgAq3B1e9fVMgbj/r72ptB5bZVTCz
-T1RK4knd5lD8nNU4Dzs94LoFy65hkGglt4X1It06s3bGAAAAAAECAwQF
+c2gtZWQyNTUxOQAAACBkhIrYq+1uhZgbOzh1slK4dn67SwL3A6yjsecbvWqOUAAA
+AIgN5+09DeftPQAAAAtzc2gtZWQyNTUxOQAAACBkhIrYq+1uhZgbOzh1slK4dn67
+SwL3A6yjsecbvWqOUAAAAEAx/8IRbsvgA6yqgAq3B1e9fVMgbj/r72ptB5bZVTCz
+T2SEitir7W6FmBs7OHWyUrh2frtLAvcDrKOx5xu9ao5QAAAAAAECAwQF
 -----END OPENSSH PRIVATE KEY-----
 
 
