@@ -33,6 +33,7 @@ var sshAgentFlag = flag.String("ssh-agent", "litewitness.sock", "path to ssh-age
 var listenFlag = flag.String("listen", "localhost:7380", "address to listen for HTTP requests")
 var keyFlag = flag.String("key", "", "hex-encoded SHA-256 hash of the witness key")
 var bastionFlag = flag.String("bastion", "", "address of the bastion to reverse proxy through")
+var testCertFlag = flag.Bool("testcert", false, "use rootCA.pem for connections to the bastion")
 
 func main() {
 	flag.Parse()
@@ -92,6 +93,15 @@ func main() {
 		}
 		dialCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
+		var roots *x509.CertPool
+		if *testCertFlag {
+			roots = x509.NewCertPool()
+			root, err := os.ReadFile("rootCA.pem")
+			if err != nil {
+				log.Fatalf("reading test root: %v", err)
+			}
+			roots.AppendCertsFromPEM(root)
+		}
 		conn, err := (&tls.Dialer{
 			Config: &tls.Config{
 				Certificates: []tls.Certificate{{
@@ -101,6 +111,7 @@ func main() {
 				MinVersion: tls.VersionTLS13,
 				MaxVersion: tls.VersionTLS13,
 				NextProtos: []string{"bastion/0"},
+				RootCAs:    roots,
 			},
 		}).DialContext(dialCtx, "tcp", *bastionFlag)
 		if err != nil {
