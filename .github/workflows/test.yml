@@ -1,0 +1,31 @@
+name: Go tests
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    name: Test
+    strategy:
+      fail-fast: false
+      matrix:
+        go: [mod, tip]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Go (from go.mod)
+        if: matrix.go == 'mod'
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: Install Go (tip)
+        if: matrix.go == 'tip'
+        run: |
+          git clone --filter=tree:0 https://go.googlesource.com/go $HOME/gotip
+          cd $HOME/gotip/src && ./make.bash
+          echo "$HOME/gotip/bin" >> $GITHUB_PATH
+      - name: Checkout repository
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - name: Run tests
+        run: go test -race ./...
