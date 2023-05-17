@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/tls"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,7 +43,21 @@ func TestScript(t *testing.T) {
 		Cmds: map[string]func(ts *testscript.TestScript, neg bool, args []string){
 			"waitfor": func(ts *testscript.TestScript, neg bool, args []string) {
 				if len(args) != 1 {
-					ts.Fatalf("usage: waitfor <file | host:port>")
+					ts.Fatalf("usage: waitfor <file | host:port | URL>")
+				}
+				if strings.HasPrefix(args[0], "http") {
+					var lastErr error
+					for i := 0; i < 50; i++ {
+						t := http.DefaultTransport.(*http.Transport).Clone()
+						t.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+						r, err := (&http.Client{Transport: t}).Get(args[0])
+						if err == nil && r.StatusCode != http.StatusBadGateway {
+							return
+						}
+						time.Sleep(100 * time.Millisecond)
+						lastErr = err
+					}
+					ts.Fatalf("timeout waiting for %s: %v", args[0], lastErr)
 				}
 				protocol := "unix"
 				if strings.Contains(args[0], ":") {
