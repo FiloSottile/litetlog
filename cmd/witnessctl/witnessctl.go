@@ -18,7 +18,7 @@ func usage() {
 	fmt.Println("Commands:")
 	fmt.Println("    add-sigsum-log -db <path> -key <hex-encoded key>")
 	fmt.Println("    list-logs -db <path>")
-	fmt.Println("    list-tree-heads -db <path> -origin <origin> [-only-failed]")
+	fmt.Println("    list-tree-heads -db <path> [-only-failed]")
 	os.Exit(1)
 }
 
