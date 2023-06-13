@@ -4,7 +4,7 @@
 exec witnessctl add-sigsum-log -key=ffdc2d4d98e4124d3feaf788c0c2f9abfd796083d1f0495437f302ec79cf100f
 
 # start bastion
-exec litebastion -testcert -backends=e933707e0e36c30f01d94b5d81e742da373679d88eb0f85f959ccd80b83b992a &litebastion&
+exec litebastion -testcert -backends=backends.txt &litebastion&
 waitfor localhost:8443
 
 # start ssh-agent
@@ -13,6 +13,13 @@ env SSH_AUTH_SOCK=$WORK/s # barely below the max path length
 waitfor $SSH_AUTH_SOCK
 chmod 600 witness_key.pem
 exec ssh-add witness_key.pem
+
+# fail to start litewitness
+! exec litewitness -ssh-agent=$SSH_AUTH_SOCK -bastion=localhost:8443 -testcert -key=e933707e0e36c30f01d94b5d81e742da373679d88eb0f85f959ccd80b83b992a
+
+# reload backends
+mv correct_backends.txt backends.txt
+exec killall -SIGHUP litebastion
 
 # start litewitness
 exec litewitness -ssh-agent=$SSH_AUTH_SOCK -bastion=localhost:8443 -testcert -key=e933707e0e36c30f01d94b5d81e742da373679d88eb0f85f959ccd80b83b992a &litewitness&
@@ -29,12 +36,22 @@ wait litewitness
 # check the litebastion output
 killall
 wait litebastion
+stderr 'Reloaded backends'
 stderr 'e933707e0e36c30f01d94b5d81e742da373679d88eb0f85f959ccd80b83b992a: accepted new backend connection'
 
 # witnessctl list-logs
 exec witnessctl list-logs
 stdout sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
 stdout "size":1
+
+
+-- backends.txt --
+f97f12534ff2478cfc36b00d09a85d4faeb6589ac19a0895c348a499627c531c
+
+
+-- correct_backends.txt --
+f97f12534ff2478cfc36b00d09a85d4faeb6589ac19a0895c348a499627c531c
+e933707e0e36c30f01d94b5d81e742da373679d88eb0f85f959ccd80b83b992a
 
 
 -- witness_key.pem --

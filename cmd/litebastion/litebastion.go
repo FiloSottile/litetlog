@@ -1,4 +1,4 @@
-// Command bastion runs a reverse proxy service that allows un-addressable
+// Command litebastion runs a reverse proxy service that allows un-addressable
 // applications (for example those running behind a firewall or a NAT, or where
 // the operator doesn't wish to take the DoS risk of being reachable from the
 // Internet) to accept HTTP requests.
@@ -27,6 +27,7 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"golang.org/x/crypto/acme"
@@ -39,7 +40,7 @@ var testCertificates = flag.Bool("testcert", false, "use localhost.pem and local
 var autocertCache = flag.String("cache", "", "directory to cache ACME certificates at")
 var autocertHost = flag.String("host", "", "host to obtain ACME certificate for")
 var autocertEmail = flag.String("email", "", "")
-var allowedBackendsList = flag.String("backends", "", "accepted key hashes, comma separated")
+var allowedBackendsFile = flag.String("backends", "", "file of accepted key hashes, one per line, reloaded on SIGHUP")
 
 type keyHash [sha256.Size]byte
 
@@ -69,21 +70,48 @@ func main() {
 		getCertificate = m.GetCertificate
 	}
 
-	if *allowedBackendsList == "" {
-		log.Fatal("-backends is empty")
+	if *allowedBackendsFile == "" {
+		log.Fatal("-backends is missing")
 	}
-	allowedBackends := make(map[keyHash]bool)
-	for _, line := range strings.Split(*allowedBackendsList, ",") {
-		l, err := hex.DecodeString(line)
+	var allowedBackendsMu sync.RWMutex
+	var allowedBackends map[keyHash]bool
+	reloadBackends := func() error {
+		newBackends := make(map[keyHash]bool)
+		backendsList, err := os.ReadFile(*allowedBackendsFile)
 		if err != nil {
-			log.Fatalf("Invalid backend: %q", line)
+			return err
 		}
-		if len(l) != sha256.Size {
-			log.Fatalf("Invalid backend: %q", line)
+		bs := strings.TrimSpace(string(backendsList))
+		for _, line := range strings.Split(bs, "\n") {
+			l, err := hex.DecodeString(line)
+			if err != nil {
+				return fmt.Errorf("invalid backend: %q", line)
+			}
+			if len(l) != sha256.Size {
+				return fmt.Errorf("invalid backend: %q", line)
+			}
+			h := *(*keyHash)(l)
+			newBackends[h] = true
 		}
-		h := *(*keyHash)(l)
-		allowedBackends[h] = true
+		allowedBackendsMu.Lock()
+		defer allowedBackendsMu.Unlock()
+		allowedBackends = newBackends
+		return nil
 	}
+	if err := reloadBackends(); err != nil {
+		log.Fatalf("Failed to load backends: %v", err)
+	}
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGHUP)
+	go func() {
+		for range c {
+			if err := reloadBackends(); err != nil {
+				log.Printf("Failed to reload backends: %v", err)
+			} else {
+				log.Printf("Reloaded backends.")
+			}
+		}
+	}()
 
 	bastionTLSConfig := &tls.Config{
 		MinVersion: tls.VersionTLS13,
@@ -96,6 +124,8 @@ func main() {
 				return errors.New("self-signed certificate key type is not Ed25519")
 			}
 			h := sha256.Sum256(pk)
+			allowedBackendsMu.RLock()
+			defer allowedBackendsMu.RUnlock()
 			if !allowedBackends[h] {
 				return fmt.Errorf("unrecognized backend %x", h)
 			}
