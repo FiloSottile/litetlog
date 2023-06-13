@@ -19,6 +19,9 @@ waitfor localhost:7380
 # add-tree-head
 exec hurl --test add-tree-head.hurl
 
+# get-tree-size
+exec hurl --test get-tree-size.hurl
+
 # check that litewitness didn't log any error
 killall
 wait litewitness
@@ -51,6 +54,11 @@ cuRlqbxEFXj3QxfqS9wkoIwnLntndBzFufQrcnabBdf1AAAAAAECAwQF
 
 
 -- add-tree-head.hurl --
+GET http://localhost:7380/sigsum/v1/get-tree-size/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
+HTTP 200
+[Asserts]
+body contains "size=0"
+
 POST http://localhost:7380/sigsum/v1/add-tree-head
 ```
 key_hash=4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
@@ -168,3 +176,22 @@ node_hash=2a04000000000000000000000000000000000000000000000000000000000000
 HTTP 200
 [Asserts]
 body contains "cosignature="
+
+-- get-tree-size.hurl --
+GET http://localhost:7380/sigsum/v1/get-tree-size/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
+HTTP 200
+Cache-Control: no-store
+[Asserts]
+body == "size=5\n"
+
+GET http://localhost:7380/sigsum/v1/get-tree-size/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e56x
+HTTP 400
+
+GET http://localhost:7380/sigsum/v1/get-tree-size/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e56
+HTTP 400
+
+GET http://localhost:7380/sigsum/v1/get-tree-size/
+HTTP 400
+
+GET http://localhost:7380/sigsum/v1/get-tree-size/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e56a
+HTTP 404

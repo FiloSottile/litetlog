@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"crawshaw.io/sqlite"
@@ -72,6 +73,7 @@ func NewWitness(dbPath string, s crypto.Signer, log func(format string, v ...any
 		mux: http.NewServeMux(),
 	}
 	w.mux.Handle("/sigsum/v1/add-tree-head", http.HandlerFunc(w.serveAddTreeHead))
+	w.mux.Handle("/sigsum/v1/get-tree-size/", http.HandlerFunc(w.serveGetTreeSize))
 	return w, nil
 }
 
@@ -79,10 +81,14 @@ func (w *Witness) Close() error {
 	return w.db.Close()
 }
 
+func sigsumOrigin(keyHash sigsum.Hash) string {
+	return fmt.Sprintf("sigsum.org/v1/tree/%x", keyHash)
+}
+
 func (w *Witness) AddSigsumLog(key sigsum.PublicKey) error {
 	keyHash := sigsum.HashBytes(key[:])
 	treeHash := merkle.HashEmptyTree()
-	origin := fmt.Sprintf("sigsum.org/v1/tree/%x", keyHash)
+	origin := sigsumOrigin(keyHash)
 	err := sqlitex.Exec(w.db, "INSERT INTO log (origin, tree_size, tree_hash) VALUES (?, 0, ?)",
 		nil, origin, base64.StdEncoding.EncodeToString(treeHash[:]))
 	if err != nil {
@@ -106,6 +112,33 @@ var errConflict = errors.New("known tree size doesn't match provided old size")
 var errBadRequest = errors.New("invalid input")
 var errProof = errors.New("bad consistency proof")
 
+func (w *Witness) serveGetTreeSize(rw http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(rw, "only GET is allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	keyHash, err := sigsum.HashFromHex(strings.TrimPrefix(r.URL.Path, "/sigsum/v1/get-tree-size/"))
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+	treeSize, _, err := w.getLog(sigsumOrigin(keyHash))
+	if err == errUnknownLog {
+		http.Error(rw, err.Error(), http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rw.Header().Set("Cache-Control", "no-store")
+	if err := ascii.WriteInt(rw, "size", uint64(treeSize)); err != nil {
+		w.log("Failed to write size: %v", err)
+	}
+}
+
 func (w *Witness) serveAddTreeHead(rw http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(rw, "only POST is allowed", http.StatusMethodNotAllowed)
@@ -121,8 +154,8 @@ func (w *Witness) serveAddTreeHead(rw http.ResponseWriter, r *http.Request) {
 	for i := range proof {
 		treeProof[i] = tlog.Hash(proof[i])
 	}
-	cosig, t, err := w.processSigsumRequest(keyHash[:], int64(oldSize), int64(newSize),
-		tlog.Hash(newHash), signature[:], treeProof)
+	cosig, t, err := w.processSigsumRequest(sigsumOrigin(keyHash), int64(oldSize),
+		int64(newSize), tlog.Hash(newHash), signature[:], treeProof)
 	switch err {
 	case errUnknownLog, errInvalidSignature:
 		http.Error(rw, err.Error(), http.StatusForbidden)
@@ -190,10 +223,8 @@ func parseSigsumRequest(r io.Reader) (keyHash sigsum.Hash, oldSize, newSize uint
 }
 
 func (w *Witness) processSigsumRequest(
-	keyHash []byte, oldSize, newSize int64, newHash tlog.Hash,
+	origin string, oldSize, newSize int64, newHash tlog.Hash,
 	signature []byte, proof tlog.TreeProof) (cosig []byte, t time.Time, err error) {
-
-	origin := fmt.Sprintf("sigsum.org/v1/tree/%x", keyHash)
 	checkpoint := serializeCheckpoint(origin, newSize, newHash)
 
 	key, err := w.getSigsumKey(origin)
