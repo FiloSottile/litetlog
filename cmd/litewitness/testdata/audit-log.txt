@@ -47,10 +47,10 @@ stdout "size":3
 exec witnessctl list-tree-heads
 linecount stdout 2
 
-# check that litewitness didn't log any error
+# check that litewitness shut down cleanly
 killall
 wait litewitness
-! stderr .
+stderr 'shutting down'
 
 
 -- witness_key.pem --

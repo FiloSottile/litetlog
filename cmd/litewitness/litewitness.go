@@ -48,6 +48,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("getting keys from ssh-agent: %v", err)
 	}
+	log.Printf("connected to ssh-agent at %s", *sshAgentFlag)
 	var signer *signer
 	var keys []string
 	for _, s := range signers {
@@ -69,6 +70,7 @@ func main() {
 	if signer == nil {
 		log.Fatalf("ssh-agent does not contain Ed25519 key %q, only %q", *keyFlag, keys)
 	}
+	log.Printf("found key %s", *keyFlag)
 
 	w, err := witness.NewWitness(*dbFlag, signer, log.Printf)
 	if err != nil {
@@ -117,6 +119,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("connecting to bastion: %v", err)
 		}
+		log.Printf("connected to bastion at %s", *bastionFlag)
 		go func() {
 			(&http2.Server{
 				CountError: func(errType string) {
@@ -134,11 +137,13 @@ func main() {
 			e <- errors.New("connection to bastion interrupted")
 		}()
 	} else {
+		log.Printf("listening on %s", *listenFlag)
 		go func() { e <- srv.ListenAndServe() }()
 	}
 
 	select {
 	case <-ctx.Done():
+		log.Printf("shutting down")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		srv.Shutdown(ctx)

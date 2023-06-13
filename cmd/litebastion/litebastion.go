@@ -52,7 +52,7 @@ func main() {
 	if *testCertificates {
 		cert, err := tls.LoadX509KeyPair("localhost.pem", "localhost-key.pem")
 		if err != nil {
-			log.Fatalf("Can't load test certificates: %v", err)
+			log.Fatalf("can't load test certificates: %v", err)
 		}
 		getCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 			return &cert, nil
@@ -99,16 +99,17 @@ func main() {
 		return nil
 	}
 	if err := reloadBackends(); err != nil {
-		log.Fatalf("Failed to load backends: %v", err)
+		log.Fatalf("failed to load backends: %v", err)
 	}
+	log.Printf("loaded %d backends", len(allowedBackends))
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGHUP)
 	go func() {
 		for range c {
 			if err := reloadBackends(); err != nil {
-				log.Printf("Failed to reload backends: %v", err)
+				log.Printf("failed to reload backends: %v", err)
 			} else {
-				log.Printf("Reloaded backends.")
+				log.Printf("reloaded backends")
 			}
 		}
 	}()
@@ -196,9 +197,10 @@ func main() {
 		},
 	}
 	if err := http2.ConfigureServer(hs, nil); err != nil {
-		log.Fatalln("Failed to configure HTTP/2:", err)
+		log.Fatalln("failed to configure HTTP/2:", err)
 	}
 
+	log.Printf("listening on %s", *listenAddr)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	e := make(chan error, 1)
@@ -209,7 +211,7 @@ func main() {
 		defer cancel()
 		hs.Shutdown(ctx)
 	case err := <-e:
-		log.Fatalf("Server error: %v", err)
+		log.Fatalf("server error: %v", err)
 	}
 }
 
