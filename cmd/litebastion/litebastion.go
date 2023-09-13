@@ -13,16 +13,13 @@ package main
 
 import (
 	"context"
-	"crypto/ed25519"
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
-	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
-	"net/http/httputil"
 	"os"
 	"os/signal"
 	"strings"
@@ -30,6 +27,7 @@ import (
 	"syscall"
 	"time"
 
+	"filippo.io/litetlog/bastion"
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/net/http2"
@@ -90,7 +88,7 @@ func main() {
 			if len(l) != sha256.Size {
 				return fmt.Errorf("invalid backend: %q", line)
 			}
-			h := *(*keyHash)(l)
+			h := keyHash(l)
 			newBackends[h] = true
 		}
 		allowedBackendsMu.Lock()
@@ -114,87 +112,28 @@ func main() {
 		}
 	}()
 
-	bastionTLSConfig := &tls.Config{
-		MinVersion: tls.VersionTLS13,
-		NextProtos: []string{"bastion/0"},
-		ClientAuth: tls.RequireAnyClientCert,
-		VerifyConnection: func(cs tls.ConnectionState) error {
-			leaf := cs.PeerCertificates[0]
-			pk, ok := leaf.PublicKey.(ed25519.PublicKey)
-			if !ok {
-				return errors.New("self-signed certificate key type is not Ed25519")
-			}
-			h := sha256.Sum256(pk)
+	b, err := bastion.New(&bastion.Config{
+		AllowedBackend: func(keyHash [sha256.Size]byte) bool {
 			allowedBackendsMu.RLock()
 			defer allowedBackendsMu.RUnlock()
-			if !allowedBackends[h] {
-				return fmt.Errorf("unrecognized backend %x", h)
-			}
-			return nil
+			return allowedBackends[keyHash]
 		},
 		GetCertificate: getCertificate,
-	}
-
-	p := &backendConnectionsPool{
-		conns: make(map[keyHash]*http2.ClientConn),
-	}
-
-	proxy := &httputil.ReverseProxy{
-		// TODO: migrate to Rewrite once Go 1.19 is unsupported.
-		/* Rewrite: func(pr *httputil.ProxyRequest) {
-			pr.Out.URL.Scheme = "https" // needed for the required :scheme header
-			pr.Out.Host = pr.In.Context().Value("backend").(string)
-			pr.SetXForwarded()
-			// We don't interpret the query, so pass it on unmodified.
-			pr.Out.URL.RawQuery = pr.In.URL.RawQuery
-		}, */
-		Director: func(r *http.Request) {
-			// Don't let the client drop the X-Forwarded headers.
-			r.Header.Del("Connection")
-			// ReverseProxy will apply a fresh X-Forwarded-For.
-			r.Header.Del("X-Forwarded-For")
-			r.URL.Scheme = "https" // needed for the required :scheme header
-			r.Header.Set("X-Forwarded-Host", r.Host)
-			r.Host = r.Context().Value("backend").(string)
-		},
-		Transport: p,
+	})
+	if err != nil {
+		log.Fatalf("failed to load bastion: %v", err)
 	}
 
 	hs := &http.Server{
-		Addr: *listenAddr,
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			path := r.URL.Path
-			if !strings.HasPrefix(path, "/") {
-				http.Error(w, "request must start with /KEY_HASH/", http.StatusNotFound)
-				return
-			}
-			path = path[1:]
-			kh, path, ok := strings.Cut(path, "/")
-			if !ok {
-				http.Error(w, "request must start with /KEY_HASH/", http.StatusNotFound)
-				return
-			}
-			ctx := context.WithValue(r.Context(), "backend", kh)
-			r = r.Clone(ctx)
-			r.URL.Path = "/" + path
-			proxy.ServeHTTP(w, r)
-		}),
+		Addr:    *listenAddr,
+		Handler: b,
 		TLSConfig: &tls.Config{
 			NextProtos:     []string{acme.ALPNProto},
 			GetCertificate: getCertificate,
-			GetConfigForClient: func(chi *tls.ClientHelloInfo) (*tls.Config, error) {
-				for _, proto := range chi.SupportedProtos {
-					if proto == "bastion/0" {
-						// This is a bastion connection from a backend.
-						return bastionTLSConfig, nil
-					}
-				}
-				return nil, nil
-			},
 		},
-		TLSNextProto: map[string]func(*http.Server, *tls.Conn, http.Handler){
-			"bastion/0": p.handleBackend,
-		},
+	}
+	if err := b.ConfigureServer(hs); err != nil {
+		log.Fatalln("failed to configure bastion:", err)
 	}
 	if err := http2.ConfigureServer(hs, nil); err != nil {
 		log.Fatalln("failed to configure HTTP/2:", err)
@@ -213,65 +152,4 @@ func main() {
 	case err := <-e:
 		log.Fatalf("server error: %v", err)
 	}
-}
-
-type backendConnectionsPool struct {
-	sync.RWMutex
-	conns map[keyHash]*http2.ClientConn
-}
-
-func (p *backendConnectionsPool) RoundTrip(r *http.Request) (*http.Response, error) {
-	kh, err := hex.DecodeString(r.Host)
-	if err != nil || len(kh) != sha256.Size {
-		// TODO: return this as a response instead.
-		return nil, errors.New("invalid backend key hash")
-	}
-	p.RLock()
-	cc, ok := p.conns[*(*keyHash)(kh)]
-	p.RUnlock()
-	if !ok {
-		// TODO: return this as a response instead.
-		return nil, errors.New("backend unavailable")
-	}
-	return cc.RoundTrip(r)
-}
-
-func (p *backendConnectionsPool) handleBackend(hs *http.Server, c *tls.Conn, h http.Handler) {
-	backend := sha256.Sum256(c.ConnectionState().PeerCertificates[0].PublicKey.(ed25519.PublicKey))
-	t := &http2.Transport{
-		// Send a PING every 15s, with the default 15s timeout.
-		ReadIdleTimeout: 15 * time.Second,
-	}
-	cc, err := t.NewClientConn(c)
-	if err != nil {
-		log.Printf("%x: failed to convert to HTTP/2 client connection: %v", backend, err)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := cc.Ping(ctx); err != nil {
-		log.Printf("%x: did not respond to PING: %v", backend, err)
-		return
-	}
-
-	p.Lock()
-	if oldCC, ok := p.conns[backend]; ok && !oldCC.State().Closed {
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-			defer cancel()
-			oldCC.Shutdown(ctx)
-		}()
-	}
-	p.conns[backend] = cc
-	p.Unlock()
-
-	log.Printf("%x: accepted new backend connection", backend)
-	// We need not to return, or http.Server will close this connection. There
-	// is no way to wait for the ClientConn's closing, so we poll. We could
-	// switch this to a Server.ConnState callback with some plumbing.
-	for !cc.State().Closed {
-		time.Sleep(1 * time.Second)
-	}
-	log.Printf("%x: backend connection expired", backend)
 }
