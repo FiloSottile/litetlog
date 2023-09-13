@@ -17,10 +17,10 @@ exec litewitness -ssh-agent=$SSH_AUTH_SOCK -key=e933707e0e36c30f01d94b5d81e742da
 waitfor localhost:7380
 
 # add-tree-head
-exec hurl --test add-tree-head.hurl
+exec hurl --test --error-format long add-tree-head.hurl
 
 # get-tree-size
-exec hurl --test get-tree-size.hurl
+exec hurl --test --error-format long get-tree-size.hurl
 
 # check that litewitness shut down cleanly
 killall
