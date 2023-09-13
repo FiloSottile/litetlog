@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"filippo.io/litetlog/bastion"
 	"golang.org/x/crypto/acme/autocert"
@@ -46,9 +47,11 @@ func Example() {
 	})
 
 	hs := &http.Server{
-		Addr:      "127.0.0.1:1337",
-		Handler:   mux,
-		TLSConfig: m.TLSConfig(),
+		Addr:         "127.0.0.1:1337",
+		Handler:      http.MaxBytesHandler(mux, 10*1024),
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 5 * time.Second,
+		TLSConfig:    m.TLSConfig(),
 	}
 	// ConfigureServer sets up TLSNextProto and a tls.Config.GetConfigForClient
 	// for backend connections.

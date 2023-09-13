@@ -125,8 +125,10 @@ func main() {
 	}
 
 	hs := &http.Server{
-		Addr:    *listenAddr,
-		Handler: b,
+		Addr:         *listenAddr,
+		Handler:      http.MaxBytesHandler(b, 10*1024),
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 5 * time.Second,
 		TLSConfig: &tls.Config{
 			NextProtos:     []string{acme.ALPNProto},
 			GetCertificate: getCertificate,
