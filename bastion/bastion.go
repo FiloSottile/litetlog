@@ -29,6 +29,7 @@ import (
 	"golang.org/x/net/http2"
 )
 
+// Config provides parameters for a new Bastion.
 type Config struct {
 	// GetCertificate returns the certificate for bastion backend connections.
 	GetCertificate func(*tls.ClientHelloInfo) (*tls.Certificate, error)
@@ -44,6 +45,8 @@ type Config struct {
 	Log *log.Logger
 }
 
+// A Bastion keeps track of backend connections, and serves HTTP requests by
+// routing them to the matching backend.
 type Bastion struct {
 	c     *Config
 	proxy *httputil.ReverseProxy
@@ -52,6 +55,9 @@ type Bastion struct {
 
 type keyHash [sha256.Size]byte
 
+// New returns a new Bastion.
+//
+// The Config must not be modified after the call to New.
 func New(c *Config) (*Bastion, error) {
 	b := &Bastion{c: c}
 	b.pool = &backendConnectionsPool{
@@ -75,6 +81,13 @@ func New(c *Config) (*Bastion, error) {
 	return b, nil
 }
 
+// ConfigureServer sets up srv to handle backend connections to the bastion. It
+// wraps TLSConfig.GetConfigForClient to intercept backend connections, and sets
+// TLSNextProto for the bastion ALPN protocol. The original tls.Config is still
+// used for non-bastion backend connections.
+//
+// Note that since TLSNextProto won't be nil after a call to ConfigureServer,
+// the caller might want to call [http2.ConfigureServer] as well.
 func (b *Bastion) ConfigureServer(srv *http.Server) error {
 	if srv.TLSNextProto == nil {
 		srv.TLSNextProto = make(map[string]func(*http.Server, *tls.Conn, http.Handler))
@@ -120,6 +133,9 @@ func (b *Bastion) ConfigureServer(srv *http.Server) error {
 	return nil
 }
 
+// ServeHTTP serves requests rooted at "/<hex key hash>/" by routing them to the
+// backend that authenticated with that key. Other requests are served a 404 Not
+// Found status.
 func (b *Bastion) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	if !strings.HasPrefix(path, "/") {

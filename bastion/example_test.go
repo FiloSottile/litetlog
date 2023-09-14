@@ -58,8 +58,8 @@ func Example() {
 	if err := b.ConfigureServer(hs); err != nil {
 		log.Fatalln("failed to configure bastion:", err)
 	}
-	// HTTP/2 needs to be explicitly enabled because it's only configured
-	// automatically if TLSNextProto is nil.
+	// HTTP/2 needs to be explicitly re-enabled if desired because it's only
+	// configured automatically by net/http if TLSNextProto is nil.
 	if err := http2.ConfigureServer(hs, nil); err != nil {
 		log.Fatalln("failed to configure HTTP/2:", err)
 	}
