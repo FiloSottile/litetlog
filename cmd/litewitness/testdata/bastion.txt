@@ -22,16 +22,11 @@ mv correct_backends.txt backends.txt
 exec killall -SIGHUP litebastion
 
 # start litewitness
-exec litewitness -ssh-agent=$SSH_AUTH_SOCK -bastion=localhost:8443 -testcert -key=e933707e0e36c30f01d94b5d81e742da373679d88eb0f85f959ccd80b83b992a &litewitness&
+! exec litewitness -ssh-agent=$SSH_AUTH_SOCK -bastion=localhost:8443 -testcert -key=e933707e0e36c30f01d94b5d81e742da373679d88eb0f85f959ccd80b83b992a &litewitness&
 waitfor https://localhost:8443/e933707e0e36c30f01d94b5d81e742da373679d88eb0f85f959ccd80b83b992a/
 
 # add-tree-head
 exec hurl --cacert rootCA.pem --test add-tree-head.hurl
-
-# check that litewitness shut down cleanly
-killall
-wait litewitness
-stderr 'shutting down'
 
 # check the litebastion output
 killall
@@ -40,6 +35,7 @@ stderr 'reloaded backends'
 stderr 'e933707e0e36c30f01d94b5d81e742da373679d88eb0f85f959ccd80b83b992a: accepted new backend connection'
 
 # witnessctl list-logs
+wait litewitness
 exec witnessctl list-logs
 stdout sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
 stdout "size":1

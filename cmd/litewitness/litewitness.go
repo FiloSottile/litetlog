@@ -20,6 +20,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -33,7 +35,7 @@ var dbFlag = flag.String("db", "litewitness.db", "path to sqlite database")
 var sshAgentFlag = flag.String("ssh-agent", "litewitness.sock", "path to ssh-agent socket")
 var listenFlag = flag.String("listen", "localhost:7380", "address to listen for HTTP requests")
 var keyFlag = flag.String("key", "", "hex-encoded SHA-256 hash of the witness key")
-var bastionFlag = flag.String("bastion", "", "address of the bastion to reverse proxy through")
+var bastionFlag = flag.String("bastion", "", "address of the bastion(s) to reverse proxy through, comma separated")
 var testCertFlag = flag.Bool("testcert", false, "use rootCA.pem for connections to the bastion")
 
 func main() {
@@ -46,24 +48,51 @@ func main() {
 		log.Fatalf("creating witness: %v", err)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-
 	srv := &http.Server{
-		Addr:         *listenFlag,
 		Handler:      http.MaxBytesHandler(w, 10*1024),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 5 * time.Second,
-		BaseContext:  func(net.Listener) context.Context { return ctx },
 	}
-	e := make(chan error, 1)
+
 	if *bastionFlag != "" {
-		log.Printf("connecting to bastion at %s", *bastionFlag)
-		go func() { e <- connectToBastion(ctx, signer, srv) }()
-	} else {
-		log.Printf("listening on %s", *listenFlag)
-		go func() { e <- srv.ListenAndServe() }()
+		ct := &bastionConnTracker{}
+		for _, b := range strings.Split(*bastionFlag, ",") {
+			ct.register(b)
+			go func(b string) {
+				for {
+					log.Printf("connecting to bastion at %s", b)
+					err := connectToBastion(signer, srv, func() {
+						log.Printf("connected to bastion at %s", b)
+						ct.connected(b)
+					})
+					log.Printf("disconnected from bastion at %s: %v", b, err)
+					delay := ct.reconnecting(b)
+					log.Printf("waiting %v before reconnecting to bastion at %s", delay, b)
+					time.Sleep(delay)
+				}
+			}(b)
+		}
+		// Unfortunately, graceful shutdown is not available for bastion
+		// connections. HTTP/2 graceful shutdown is a private function
+		// (startGracefulShutdown), accessible only through http.Server.Shutdown
+		// when the connection was registered and tracked by the http.Server, which
+		// doesn't happen when using ServeConn. Cancelling ServeConnOpts.Context
+		// also doesn't trigger shutdown as of Go 1.21.
+		ct.wait()
+		log.Fatalf("lost connection to all bastions, exiting")
 	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	srv.Addr = *listenFlag
+	srv.BaseContext = func(net.Listener) context.Context { return ctx }
+
+	e := make(chan error, 1)
+	go func() {
+		log.Printf("listening on %s", *listenFlag)
+		e <- srv.ListenAndServe()
+	}()
 
 	select {
 	case <-ctx.Done():
@@ -149,12 +178,68 @@ func (s *signer) Sign(rand io.Reader, data []byte, opts crypto.SignerOpts) (sign
 	return sig.Blob, nil
 }
 
-func connectToBastion(ctx context.Context, signer *signer, srv *http.Server) error {
+type bastionConnTracker struct {
+	sync.Mutex
+	backoff           map[string]time.Duration
+	disconnectedSince map[string]time.Time
+	done              chan struct{}
+}
+
+func (ct *bastionConnTracker) register(bastion string) {
+	ct.Lock()
+	defer ct.Unlock()
+
+	if ct.backoff == nil {
+		ct.backoff = make(map[string]time.Duration)
+	}
+	if ct.disconnectedSince == nil {
+		ct.disconnectedSince = make(map[string]time.Time)
+	}
+	if ct.done == nil {
+		ct.done = make(chan struct{})
+	}
+
+	ct.backoff[bastion] = time.Second
+}
+
+func (ct *bastionConnTracker) connected(bastion string) {
+	ct.Lock()
+	defer ct.Unlock()
+
+	ct.backoff[bastion] = time.Second
+	delete(ct.disconnectedSince, bastion)
+}
+
+func (ct *bastionConnTracker) reconnecting(bastion string) time.Duration {
+	ct.Lock()
+	defer ct.Unlock()
+
+	if _, ok := ct.disconnectedSince[bastion]; !ok {
+		ct.disconnectedSince[bastion] = time.Now()
+	}
+
+	// If all bastions disconnected, exit.
+	if len(ct.disconnectedSince) == len(ct.backoff) {
+		close(ct.done)
+	}
+
+	backoff := ct.backoff[bastion]
+	if backoff < 10*time.Second {
+		ct.backoff[bastion] *= 2
+	}
+	return backoff
+}
+
+func (ct *bastionConnTracker) wait() {
+	<-ct.done
+}
+
+func connectToBastion(signer *signer, srv *http.Server, connected func()) error {
 	cert, err := selfSignedCertificate(signer)
 	if err != nil {
 		log.Fatalf("generating self-signed certificate: %v", err)
 	}
-	dialCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	dialCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	var roots *x509.CertPool
 	if *testCertFlag {
@@ -180,7 +265,7 @@ func connectToBastion(ctx context.Context, signer *signer, srv *http.Server) err
 	if err != nil {
 		return fmt.Errorf("connecting to bastion: %v", err)
 	}
-	log.Printf("connected to bastion at %s", *bastionFlag)
+	connected()
 	(&http2.Server{
 		CountError: func(errType string) {
 			if http2.VerboseLogs {
@@ -188,7 +273,6 @@ func connectToBastion(ctx context.Context, signer *signer, srv *http.Server) err
 			}
 		},
 	}).ServeConn(conn, &http2.ServeConnOpts{
-		Context:    ctx,
 		BaseConfig: srv,
 		Handler:    srv.Handler,
 	})
