@@ -180,8 +180,9 @@ func (w *Witness) serveAddTreeHead(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "invalid key type", http.StatusInternalServerError)
 		return
 	}
+	pubHash := sha256.Sum256(pub)
 
-	if err := ascii.WriteLine(rw, "cosignature", []byte(pub), uint64(t.Unix()), cosig); err != nil {
+	if err := ascii.WriteLine(rw, "cosignature", pubHash[:], uint64(t.Unix()), cosig); err != nil {
 		w.log("Failed to write cosignature: %v", err)
 	}
 }
