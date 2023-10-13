@@ -1,9 +1,8 @@
 package witness
 
 import (
+	"bytes"
 	"crypto"
-	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -11,20 +10,20 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"crawshaw.io/sqlite"
 	"crawshaw.io/sqlite/sqlitex"
+	"filippo.io/litetlog/internal/tlogx"
+	"golang.org/x/mod/sumdb/note"
 	"golang.org/x/mod/sumdb/tlog"
-	"sigsum.org/sigsum-go/pkg/ascii"
-	sigsum "sigsum.org/sigsum-go/pkg/crypto"
-	"sigsum.org/sigsum-go/pkg/merkle"
 )
 
 type Witness struct {
 	db  *sqlite.Conn
-	s   crypto.Signer
+	s   note.Signer
 	mux *http.ServeMux
 	log func(format string, v ...any)
 
@@ -34,13 +33,13 @@ type Witness struct {
 	testingOnlyStallRequest func()
 }
 
-func NewWitness(dbPath string, s crypto.Signer, log func(format string, v ...any)) (*Witness, error) {
+func OpenDB(dbPath string) (*sqlite.Conn, error) {
 	db, err := sqlite.OpenConn(dbPath, 0)
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %v", err)
 	}
 
-	if err := sqlitex.ExecScript(db, `
+	return db, sqlitex.ExecScript(db, `
 		PRAGMA strict_types = ON;
 		PRAGMA foreign_keys = ON;
 		CREATE TABLE IF NOT EXISTS log (
@@ -50,7 +49,7 @@ func NewWitness(dbPath string, s crypto.Signer, log func(format string, v ...any
 		);
 		CREATE TABLE IF NOT EXISTS key (
 			origin TEXT NOT NULL,
-			key TEXT NOT NULL, -- base64-encoded
+			key TEXT NOT NULL, -- note verifier key
 			FOREIGN KEY(origin) REFERENCES log(origin)
 		);
 		-- tree_head is an audit log of validly signed tree heads
@@ -62,8 +61,18 @@ func NewWitness(dbPath string, s crypto.Signer, log func(format string, v ...any
 		);
 		CREATE INDEX IF NOT EXISTS tree_head_origin ON
 			tree_head(json_extract(json_details, '$.origin'));
-	`); err != nil {
+	`)
+}
+
+func NewWitness(dbPath, name string, key crypto.Signer, log func(format string, v ...any)) (*Witness, error) {
+	db, err := OpenDB(dbPath)
+	if err != nil {
 		return nil, fmt.Errorf("initializing database: %v", err)
+	}
+
+	s, err := tlogx.NewCosignatureV1Signer(name, key)
+	if err != nil {
+		return nil, fmt.Errorf("preparing signer: %v", err)
 	}
 
 	w := &Witness{
@@ -72,34 +81,13 @@ func NewWitness(dbPath string, s crypto.Signer, log func(format string, v ...any
 		log: log,
 		mux: http.NewServeMux(),
 	}
-	w.mux.Handle("/sigsum/v1/add-tree-head", http.HandlerFunc(w.serveAddTreeHead))
-	w.mux.Handle("/sigsum/v1/get-tree-size/", http.HandlerFunc(w.serveGetTreeSize))
+	w.mux.Handle("/v1/add-tree-head", http.HandlerFunc(w.serveAddTreeHead))
+	w.mux.Handle("/v1/get-tree-size", http.HandlerFunc(w.serveGetTreeSize))
 	return w, nil
 }
 
 func (w *Witness) Close() error {
 	return w.db.Close()
-}
-
-func sigsumOrigin(keyHash sigsum.Hash) string {
-	return fmt.Sprintf("sigsum.org/v1/tree/%x", keyHash)
-}
-
-func (w *Witness) AddSigsumLog(key sigsum.PublicKey) error {
-	keyHash := sigsum.HashBytes(key[:])
-	treeHash := merkle.HashEmptyTree()
-	origin := sigsumOrigin(keyHash)
-	err := sqlitex.Exec(w.db, "INSERT INTO log (origin, tree_size, tree_hash) VALUES (?, 0, ?)",
-		nil, origin, base64.StdEncoding.EncodeToString(treeHash[:]))
-	if err != nil {
-		return err
-	}
-	return sqlitex.Exec(w.db, "INSERT INTO key (origin, key) VALUES (?, ?)",
-		nil, origin, base64.StdEncoding.EncodeToString(key[:]))
-}
-
-func (w *Witness) ExecSQL(query string, resultFn func(stmt *sqlite.Stmt) error, args ...interface{}) error {
-	return sqlitex.Exec(w.db, query, resultFn, args...)
 }
 
 func (w *Witness) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
@@ -118,12 +106,13 @@ func (w *Witness) serveGetTreeSize(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keyHash, err := sigsum.HashFromHex(strings.TrimPrefix(r.URL.Path, "/sigsum/v1/get-tree-size/"))
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusBadRequest)
+	origin := r.URL.Query().Get("origin")
+	if origin == "" {
+		http.Error(rw, "missing origin parameter", http.StatusBadRequest)
 		return
 	}
-	treeSize, _, err := w.getLog(sigsumOrigin(keyHash))
+
+	treeSize, _, err := w.getLog(origin)
 	if err == errUnknownLog {
 		http.Error(rw, err.Error(), http.StatusNotFound)
 		return
@@ -134,7 +123,7 @@ func (w *Witness) serveGetTreeSize(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	rw.Header().Set("Cache-Control", "no-store")
-	if err := ascii.WriteInt(rw, "size", uint64(treeSize)); err != nil {
+	if _, err := fmt.Fprintf(rw, "%d\n", treeSize); err != nil {
 		w.log("Failed to write size: %v", err)
 	}
 }
@@ -145,17 +134,12 @@ func (w *Witness) serveAddTreeHead(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keyHash, oldSize, newSize, newHash, signature, proof, err := parseSigsumRequest(r.Body)
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(rw, err.Error(), http.StatusBadRequest)
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	treeProof := make(tlog.TreeProof, len(proof))
-	for i := range proof {
-		treeProof[i] = tlog.Hash(proof[i])
-	}
-	cosig, t, err := w.processSigsumRequest(sigsumOrigin(keyHash), int64(oldSize),
-		int64(newSize), tlog.Hash(newHash), signature[:], treeProof)
+	cosig, err := w.processAddTreeHeadRequest(body)
 	switch err {
 	case errUnknownLog, errInvalidSignature:
 		http.Error(rw, err.Error(), http.StatusForbidden)
@@ -174,101 +158,94 @@ func (w *Witness) serveAddTreeHead(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	rw.Write(cosig)
+}
 
-	pub, ok := w.s.Public().(ed25519.PublicKey)
+func (w *Witness) processAddTreeHeadRequest(body []byte) (cosig []byte, err error) {
+	body, noteBytes, ok := bytes.Cut(body, []byte("\n\n"))
 	if !ok {
-		http.Error(rw, "invalid key type", http.StatusInternalServerError)
-		return
+		return nil, errBadRequest
 	}
-	pubHash := sha256.Sum256(pub)
-
-	if err := ascii.WriteLine(rw, "cosignature", pubHash[:], uint64(t.Unix()), cosig); err != nil {
-		w.log("Failed to write cosignature: %v", err)
+	lines := strings.Split(string(body), "\n")
+	if len(lines) < 1 {
+		return nil, errBadRequest
 	}
-}
-
-func parseSigsumRequest(r io.Reader) (keyHash sigsum.Hash, oldSize, newSize uint64, newHash sigsum.Hash,
-	signature sigsum.Signature, proof []sigsum.Hash, err error) {
-	p := ascii.NewParser(r)
-	keyHash, err = p.GetHash("key_hash")
-	if err != nil {
-		return
+	size, ok := strings.CutPrefix(lines[0], "old ")
+	if !ok {
+		return nil, errBadRequest
 	}
-	newSize, err = p.GetInt("size")
-	if err != nil {
-		return
+	oldSize, err := strconv.ParseInt(size, 10, 64)
+	if err != nil || oldSize < 0 {
+		return nil, errBadRequest
 	}
-	newHash, err = p.GetHash("root_hash")
-	if err != nil {
-		return
-	}
-	signature, err = p.GetSignature("signature")
-	if err != nil {
-		return
-	}
-	oldSize, err = p.GetInt("old_size")
-	if err != nil {
-		return
-	}
-	for {
-		var h sigsum.Hash
-		h, err = p.GetHash("node_hash")
+	proof := make(tlog.TreeProof, len(lines[1:]))
+	for i, h := range lines[1:] {
+		proof[i], err = tlog.ParseHash(h)
 		if err != nil {
-			if err == io.EOF {
-				err = nil
-			}
-			return
+			return nil, errBadRequest
 		}
-		proof = append(proof, h)
 	}
-}
-
-func (w *Witness) processSigsumRequest(
-	origin string, oldSize, newSize int64, newHash tlog.Hash,
-	signature []byte, proof tlog.TreeProof) (cosig []byte, t time.Time, err error) {
-	checkpoint := serializeCheckpoint(origin, newSize, newHash)
-
-	key, err := w.getSigsumKey(origin)
+	origin, _, _ := strings.Cut(string(noteBytes), "\n")
+	verifier, err := w.getKeys(origin)
 	if err != nil {
-		return nil, t, err
+		return nil, err
 	}
-	if err := verifySingleSignature(key, checkpoint, signature); err != nil {
-		return nil, t, err
+	n, err := note.Open(noteBytes, verifier)
+	switch err.(type) {
+	case *note.UnverifiedNoteError, *note.InvalidSignatureError:
+		return nil, errInvalidSignature
 	}
-	defer func() { w.logValidCheckpoint(origin, newSize, checkpoint, key, signature, t, err) }()
-	if err := w.checkConsistency(origin, oldSize, newSize, newHash, proof); err != nil {
-		return nil, t, err
+	if err != nil {
+		return nil, err
+	}
+	defer func() { w.logValidCheckpoint(origin, n.Text, noteBytes, err) }()
+	c, err := tlogx.ParseCheckpoint(n.Text)
+	if err != nil {
+		return nil, err
+	}
+	if err := w.checkConsistency(c.Origin, oldSize, c.N, c.Hash, proof); err != nil {
+		return nil, err
 	}
 	if w.testingOnlyStallRequest != nil {
 		w.testingOnlyStallRequest()
 	}
-	t, err = w.persistTreeHead(origin, oldSize, newSize, newHash)
-	if err != nil {
-		return nil, t, err
+	if err := w.persistTreeHead(c.Origin, oldSize, c.N, c.Hash); err != nil {
+		return nil, err
 	}
-	cosig, err = w.signTreeHead(origin, newSize, newHash, t)
+	signed, err := note.Sign(&note.Note{Text: n.Text}, w.s)
 	if err != nil {
-		return nil, t, err
+		return nil, err
 	}
-	return cosig, t, err
+	sigs, err := splitSignatures(signed)
+	if err != nil {
+		return nil, err
+	}
+	return sigs, err
 }
 
-func (w *Witness) logValidCheckpoint(origin string, newSize int64, checkpoint, key, signature []byte, t time.Time, result error) {
-	h := sha256.Sum256(checkpoint)
+func splitSignatures(note []byte) ([]byte, error) {
+	var sigSplit = []byte("\n\n")
+	split := bytes.LastIndex(note, sigSplit)
+	if split < 0 {
+		return nil, errors.New("invalid note")
+	}
+	_, sigs := note[:split+1], note[split+2:]
+	if len(sigs) == 0 || sigs[len(sigs)-1] != '\n' {
+		return nil, errors.New("invalid note")
+	}
+	return sigs, nil
+}
+
+func (w *Witness) logValidCheckpoint(origin, checkpoint string, note []byte, result error) {
+	h := sha256.Sum256([]byte(checkpoint))
 	hash := base64.StdEncoding.EncodeToString(h[:])
 	m := map[string]interface{}{
-		"origin":     origin,
-		"time":       time.Now().Format(time.RFC3339),
-		"checkpoint": checkpoint,
-		"key":        key,
-		"signature":  signature,
-		"size":       newSize,
+		"origin": origin,
+		"time":   time.Now().Format(time.RFC3339),
+		"note":   string(note),
 	}
 	if result != nil {
 		m["error"] = result.Error()
-	}
-	if !t.IsZero() {
-		m["commit_time"] = t.Format(time.RFC3339)
 	}
 	metadata, err := json.Marshal(m)
 	if err != nil {
@@ -280,21 +257,6 @@ func (w *Witness) logValidCheckpoint(origin string, newSize int64, checkpoint, k
 		nil, hash, metadata); err != nil {
 		w.log("Failed to log tree head %v: %v", string(metadata), err)
 	}
-}
-
-func verifySingleSignature(key, checkpoint, signature []byte) error {
-	if !ed25519.Verify(key, checkpoint, signature) {
-		return errInvalidSignature
-	}
-	return nil
-}
-
-func serializeCheckpoint(origin string, size int64, hash tlog.Hash) []byte {
-	return []byte(fmt.Sprintf("%s\n%d\n%s\n", origin, size, hash))
-}
-
-func serializeCosignatureSignedData(t time.Time, origin string, size int64, hash tlog.Hash) []byte {
-	return []byte(fmt.Sprintf("cosignature/v1\ntime %d\n%s\n%d\n%s\n", t.Unix(), origin, size, hash))
 }
 
 func (w *Witness) checkConsistency(origin string,
@@ -319,31 +281,19 @@ func (w *Witness) checkConsistency(origin string,
 	return nil
 }
 
-func (w *Witness) signTreeHead(origin string, size int64, h tlog.Hash, t time.Time) ([]byte, error) {
-	signedData := serializeCosignatureSignedData(t, origin, size, h)
-	sig, err := w.s.Sign(rand.Reader, signedData, crypto.Hash(0))
-	if err != nil {
-		return nil, err
-	}
-	return sig, nil
-}
-
-func (w *Witness) persistTreeHead(origin string, oldSize, newSize int64, newHash tlog.Hash) (t time.Time, err error) {
+func (w *Witness) persistTreeHead(origin string, oldSize, newSize int64, newHash tlog.Hash) error {
 	// Check oldSize against the database to prevent rolling back on a race.
 	// Alternatively, we could use a database transaction which would be cleaner
 	// but would encode a critical security semantic in the implicit use of the
 	// correct Conn across functions, which is uncomfortable.
-	err = sqlitex.Exec(w.db, `
+	err := sqlitex.Exec(w.db, `
 			UPDATE log SET tree_size = ?, tree_hash = ?
-			WHERE origin = ? AND tree_size = ? RETURNING unixepoch()`,
-		func(stmt *sqlite.Stmt) error {
-			t = time.Unix(stmt.ColumnInt64(0), 0)
-			return nil
-		}, newSize, newHash, origin, oldSize)
-	if err == nil && t.IsZero() || w.db.Changes() != 1 {
+			WHERE origin = ? AND tree_size = ?`,
+		nil, newSize, newHash, origin, oldSize)
+	if err == nil && w.db.Changes() != 1 {
 		err = errConflict
 	}
-	return
+	return err
 }
 
 func (w *Witness) getLog(origin string) (treeSize int64, treeHash tlog.Hash, err error) {
@@ -361,27 +311,26 @@ func (w *Witness) getLog(origin string) (treeSize int64, treeHash tlog.Hash, err
 	return
 }
 
-func (w *Witness) getKeys(origin string) (keys []string, err error) {
-	found := false
-	err = sqlitex.Exec(w.db, "SELECT key FROM key WHERE origin = ?",
+func (w *Witness) getKeys(origin string) (note.Verifiers, error) {
+	var keys []string
+	err := sqlitex.Exec(w.db, "SELECT key FROM key WHERE origin = ?",
 		func(stmt *sqlite.Stmt) error {
-			found = true
 			keys = append(keys, stmt.GetText("key"))
 			return nil
 		}, origin)
-	if err == nil && !found {
+	if err == nil && keys == nil {
 		err = errUnknownLog
 	}
-	return
-}
-
-func (w *Witness) getSigsumKey(origin string) ([]byte, error) {
-	keys, err := w.getKeys(origin)
 	if err != nil {
 		return nil, err
 	}
-	if len(keys) != 1 {
-		return nil, errors.New("a Sigsum log can only have one key")
+	var verifiers []note.Verifier
+	for _, k := range keys {
+		v, err := note.NewVerifier(k)
+		if err != nil {
+			return nil, fmt.Errorf("invalid key %q: %v", k, err)
+		}
+		verifiers = append(verifiers, v)
 	}
-	return base64.StdEncoding.DecodeString(keys[0])
+	return note.VerifierList(verifiers...), nil
 }

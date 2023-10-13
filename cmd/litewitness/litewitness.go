@@ -29,6 +29,7 @@ import (
 	"filippo.io/litetlog/internal/witness"
 )
 
+var nameFlag = flag.String("name", "", "URL-like (e.g. example.com/foo) name of this witness")
 var dbFlag = flag.String("db", "litewitness.db", "path to sqlite database")
 var sshAgentFlag = flag.String("ssh-agent", "litewitness.sock", "path to ssh-agent socket")
 var listenFlag = flag.String("listen", "localhost:7380", "address to listen for HTTP requests")
@@ -41,7 +42,7 @@ func main() {
 
 	signer := connectToSSHAgent()
 
-	w, err := witness.NewWitness(*dbFlag, signer, log.Printf)
+	w, err := witness.NewWitness(*dbFlag, *nameFlag, signer, log.Printf)
 	if err != nil {
 		log.Fatalf("creating witness: %v", err)
 	}

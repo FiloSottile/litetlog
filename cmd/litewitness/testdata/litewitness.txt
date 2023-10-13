@@ -13,7 +13,7 @@ chmod 600 witness_key.pem
 exec ssh-add witness_key.pem
 
 # start litewitness
-exec litewitness -ssh-agent=$SSH_AUTH_SOCK -key=e933707e0e36c30f01d94b5d81e742da373679d88eb0f85f959ccd80b83b992a &litewitness&
+exec litewitness -ssh-agent=$SSH_AUTH_SOCK -name=example.com/witness -key=e933707e0e36c30f01d94b5d81e742da373679d88eb0f85f959ccd80b83b992a &litewitness&
 waitfor localhost:7380
 
 # add-tree-head
@@ -54,144 +54,169 @@ cuRlqbxEFXj3QxfqS9wkoIwnLntndBzFufQrcnabBdf1AAAAAAECAwQF
 
 
 -- add-tree-head.hurl --
-GET http://localhost:7380/sigsum/v1/get-tree-size/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
+GET http://localhost:7380/v1/get-tree-size?origin=sigsum.org%2Fv1%2Ftree%2F4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
 HTTP 200
 [Asserts]
-body contains "size=0"
+body == "0\n"
 
-POST http://localhost:7380/sigsum/v1/add-tree-head
+POST http://localhost:7380/v1/add-tree-head
 ```
-key_hash=4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
-size=1
-root_hash=2a00000000000000000000000000000000000000000000000000000000000000
-signature=b7cf653aa9c565a1ca359db81bd3bc656ab2890c6ea4c0aec42295e80aa05049423505026434f987923ccdf07d440c152cd59e736e5914d8ada8d7a4d51b2106
-old_size=0
+old 0
+
+sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
+1
+KgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+
+— sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562 UgIom7fPZTqpxWWhyjWduBvTvGVqsokMbqTArsQilegKoFBJQjUFAmQ0+YeSPM3wfUQMFSzVnnNuWRTYrajXpNUbIQY=
 ```
 HTTP 200
 [Asserts]
-body contains "cosignature="
+body contains "— example.com/witness"
 
 
-POST http://localhost:7380/sigsum/v1/add-tree-head
+POST http://localhost:7380/v1/add-tree-head
 ```
-key_hash=4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
-size=3
-root_hash=45c088d4d939e9971298811f227d1295eaad57bbafae55cd71c171e7de48c25d
-signature=655bb4871d15bc05032d67eece88900c4863a27f190393b99176391577f5def971b023d9a418c3226b7b7ea47b33686d9b3849451dadc6b07c007c595af1ea0b
-old_size=1
-node_hash=2a01000000000000000000000000000000000000000000000000000000000000
-node_hash=2a02000000000000000000000000000000000000000000000000000000000000
+old 1
+KgEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+KgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+
+sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
+3
+RcCI1Nk56ZcSmIEfIn0SleqtV7uvrlXNccFx595Iwl0=
+
+— sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562 UgIom2VbtIcdFbwFAy1n7s6IkAxIY6J/GQOTuZF2ORV39d75cbAj2aQYwyJre36kezNobZs4SUUdrcawfAB8WVrx6gx=
 ```
 HTTP 403
 [Asserts]
 body contains "invalid signature"
 
 
-POST http://localhost:7380/sigsum/v1/add-tree-head
+POST http://localhost:7380/v1/add-tree-head
 ```
-key_hash=4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e561
-size=3
-root_hash=45c088d4d939e9971298811f227d1295eaad57bbafae55cd71c171e7de48c25d
-signature=655bb4871d15bc05032d67eece88900c4863a27f190393b99176391577f5def971b023d9a418c3226b7b7ea47b33686d9b3849451dadc6b07c007c595af1ea0a
-old_size=1
-node_hash=2a01000000000000000000000000000000000000000000000000000000000000
-node_hash=2a02000000000000000000000000000000000000000000000000000000000000
+old 1
+KgEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+KgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+
+sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e563
+3
+RcCI1Nk56ZcSmIEfIn0SleqtV7uvrlXNccFx595Iwl0=
+
+— sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e563 UgIom2VbtIcdFbwFAy1n7s6IkAxIY6J/GQOTuZF2ORV39d75cbAj2aQYwyJre36kezNobZs4SUUdrcawfAB8WVrx6go=
 ```
 HTTP 403
 [Asserts]
 body contains "unknown log"
 
 
-POST http://localhost:7380/sigsum/v1/add-tree-head
+POST http://localhost:7380/v1/add-tree-head
 ```
-key_hash=4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
-size=3
-root_hash=45c088d4d939e9971298811f227d1295eaad57bbafae55cd71c171e7de48c25d
-signature=655bb4871d15bc05032d67eece88900c4863a27f190393b99176391577f5def971b023d9a418c3226b7b7ea47b33686d9b3849451dadc6b07c007c595af1ea0a
-old_size=1
+old 1
+
+sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
+3
+RcCI1Nk56ZcSmIEfIn0SleqtV7uvrlXNccFx595Iwl0=
+
+— sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562 UgIom2VbtIcdFbwFAy1n7s6IkAxIY6J/GQOTuZF2ORV39d75cbAj2aQYwyJre36kezNobZs4SUUdrcawfAB8WVrx6go=
 ```
 HTTP 422
 [Asserts]
 body contains "consistency proof"
 
 
-POST http://localhost:7380/sigsum/v1/add-tree-head
+POST http://localhost:7380/v1/add-tree-head
 ```
-key_hash=4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
-size=3
-root_hash=45c088d4d939e9971298811f227d1295eaad57bbafae55cd71c171e7de48c25d
-signature=655bb4871d15bc05032d67eece88900c4863a27f190393b99176391577f5def971b023d9a418c3226b7b7ea47b33686d9b3849451dadc6b07c007c595af1ea0a
-old_size=1
-node_hash=2a01000000000000000000000000000000000000000000000000000000000000
-node_hash=2a02000000000000000000000000000000000000000000000000000000000001
+old 1
+KgEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+KgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABA=
+
+sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
+3
+RcCI1Nk56ZcSmIEfIn0SleqtV7uvrlXNccFx595Iwl0=
+
+— sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562 UgIom2VbtIcdFbwFAy1n7s6IkAxIY6J/GQOTuZF2ORV39d75cbAj2aQYwyJre36kezNobZs4SUUdrcawfAB8WVrx6go=
 ```
 HTTP 422
 [Asserts]
 body contains "consistency proof"
 
 
-POST http://localhost:7380/sigsum/v1/add-tree-head
+POST http://localhost:7380/v1/add-tree-head
 ```
-key_hash=4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
-size=3
-root_hash=45c088d4d939e9971298811f227d1295eaad57bbafae55cd71c171e7de48c25d
-signature=655bb4871d15bc05032d67eece88900c4863a27f190393b99176391577f5def971b023d9a418c3226b7b7ea47b33686d9b3849451dadc6b07c007c595af1ea0a
-old_size=1
-node_hash=2a01000000000000000000000000000000000000000000000000000000000000
-node_hash=2a02000000000000000000000000000000000000000000000000000000000000
+old 1
+KgEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+KgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+
+sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
+3
+RcCI1Nk56ZcSmIEfIn0SleqtV7uvrlXNccFx595Iwl0=
+
+— sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562 UgIom2VbtIcdFbwFAy1n7s6IkAxIY6J/GQOTuZF2ORV39d75cbAj2aQYwyJre36kezNobZs4SUUdrcawfAB8WVrx6go=
 ```
 HTTP 200
 [Asserts]
-body contains "cosignature="
+body contains "— example.com/witness"
 
 
-POST http://localhost:7380/sigsum/v1/add-tree-head
+POST http://localhost:7380/v1/add-tree-head
 ```
-key_hash=4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
-size=5
-root_hash=42bb57ad06420afa4882c4a63ac6a1ec77480b330b2f20dfc53a0caa5f564e36
-signature=0fc43899968b48b5150b0e8fe7ad07b17c21c7056a6fe381deb0cd19ece103d59b2119b5dbe5d54d8a1262ce67f01245c5898b4b56f747495804a17a2eec0f0c
-old_size=1
-node_hash=2a01000000000000000000000000000000000000000000000000000000000000
-node_hash=f9f50357e93def4078237b8aaea24ce1a3f5965a0f64ff26bebd99e30470d8b2
-node_hash=2a04000000000000000000000000000000000000000000000000000000000000
+old 1
+KgEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
++fUDV+k970B4I3uKrqJM4aP1lloPZP8mvr2Z4wRw2LI=
+KgQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+
+sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
+5
+QrtXrQZCCvpIgsSmOsah7HdICzMLLyDfxToMql9WTjY=
+
+— sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562 UgIomw/EOJmWi0i1FQsOj+etB7F8IccFam/jgd6wzRns4QPVmyEZtdvl1U2KEmLOZ/ASRcWJi0tW90dJWAShei7sDww=
 ```
 HTTP 409
 [Asserts]
 body contains "tree size"
 
 
-POST http://localhost:7380/sigsum/v1/add-tree-head
+POST http://localhost:7380/v1/add-tree-head
 ```
-key_hash=4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
-size=5
-root_hash=42bb57ad06420afa4882c4a63ac6a1ec77480b330b2f20dfc53a0caa5f564e36
-signature=0fc43899968b48b5150b0e8fe7ad07b17c21c7056a6fe381deb0cd19ece103d59b2119b5dbe5d54d8a1262ce67f01245c5898b4b56f747495804a17a2eec0f0c
-old_size=3
-node_hash=2a02000000000000000000000000000000000000000000000000000000000000
-node_hash=2a03000000000000000000000000000000000000000000000000000000000000
-node_hash=c2088815d65f60dbfa594d4e96504ab169cb6084bf0c132ab7c521fd2e0eba41
-node_hash=2a04000000000000000000000000000000000000000000000000000000000000
+old 3
+KgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+KgMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+wgiIFdZfYNv6WU1OllBKsWnLYIS/DBMqt8Uh/S4OukE=
+KgQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+
+sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
+5
+QrtXrQZCCvpIgsSmOsah7HdICzMLLyDfxToMql9WTjY=
+
+— sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562 UgIomw/EOJmWi0i1FQsOj+etB7F8IccFam/jgd6wzRns4QPVmyEZtdvl1U2KEmLOZ/ASRcWJi0tW90dJWAShei7sDww=
 ```
 HTTP 200
 [Asserts]
-body contains "cosignature="
+body contains "— example.com/witness"
 
 -- get-tree-size.hurl --
-GET http://localhost:7380/sigsum/v1/get-tree-size/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
+GET http://localhost:7380/v1/get-tree-size?origin=sigsum.org%2Fv1%2Ftree%2F4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
 HTTP 200
 Cache-Control: no-store
 [Asserts]
-body == "size=5\n"
+body == "5\n"
 
-GET http://localhost:7380/sigsum/v1/get-tree-size/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e56x
+GET http://localhost:7380/v1/get-tree-size?origin=sigsum.org%2Fv1%2Ftree%2F4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562x
+HTTP 404
+
+GET http://localhost:7380/v1/get-tree-size?origin=sigsum.org%2Fv1%2Ftree%2F4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e56
+HTTP 404
+
+GET http://localhost:7380/v1/get-tree-size?origin=
 HTTP 400
 
-GET http://localhost:7380/sigsum/v1/get-tree-size/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e56
+GET http://localhost:7380/v1/get-tree-size
 HTTP 400
 
-GET http://localhost:7380/sigsum/v1/get-tree-size/
-HTTP 400
+GET http://localhost:7380/v1/get-tree-size?origin=sigsum.org%2Fv1%2Ftree%2F4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e56a
+HTTP 404
 
-GET http://localhost:7380/sigsum/v1/get-tree-size/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e56a
+GET http://localhost:7380/v1/get-tree-size?origin=4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
+HTTP 404
+
+GET http://localhost:7380/v1/get-tree-size?origin=sigsum.org%2Fv1%2Ftree%2F4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562%0A
 HTTP 404

@@ -7,15 +7,19 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/pem"
 	"flag"
 	"fmt"
 	"log"
+	"net/url"
 
 	"github.com/caarlos0/sshmarshal"
 	"golang.org/x/crypto/hkdf"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/mod/sumdb/note"
 	"golang.org/x/mod/sumdb/tlog"
 	sigsum "sigsum.org/sigsum-go/pkg/crypto"
 	"sigsum.org/sigsum-go/pkg/merkle"
@@ -40,15 +44,20 @@ func main() {
 	fmt.Printf("- seed: %x\n", seed)
 	h := hkdf.New(sha256.New, seed, []byte("litewitness gentest"), nil)
 
-	var privateKey sigsum.PrivateKey
-	h.Read(privateKey[:])
-	fmt.Printf("- log private key: %x\n", privateKey)
-	s := sigsum.NewEd25519Signer(&privateKey)
-	publicKey := s.Public()
+	publicKey, privateKey, _ := ed25519.GenerateKey(h)
+	fmt.Printf("- log private key: %x\n", privateKey.Seed())
 	fmt.Printf("- log public key: %x\n", publicKey)
+
 	keyHash := sigsum.HashBytes(publicKey[:])
 	fmt.Printf("- log key hash: %x\n", keyHash)
 	origin := fmt.Sprintf("sigsum.org/v1/tree/%x", keyHash)
+	fmt.Printf("- origin: %s\n", origin)
+	fmt.Printf("- origin URL-encoded: %s\n", url.QueryEscape(origin))
+
+	const algEd25519 = 1
+	skey := fmt.Sprintf("PRIVATE+KEY+%s+%08x+%s", origin, noteKeyHash(origin, append([]byte{algEd25519}, publicKey...)), base64.StdEncoding.EncodeToString(append([]byte{algEd25519}, privateKey.Seed()...)))
+	s, _ := note.NewSigner(skey)
+	fmt.Printf("- log note key: %s\n", skey)
 
 	witSeed := make([]byte, ed25519.SeedSize)
 	h.Read(witSeed)
@@ -67,9 +76,6 @@ func main() {
 	fmt.Printf("- witness key:\n%s", pem.EncodeToMemory(pemKey))
 
 	tree := merkle.NewTree()
-	rootHash := func() {
-		fmt.Printf("- root hash (size %d): %x\n", tree.Size(), tree.GetRootHash())
-	}
 	addLeaf := func(leaf sigsum.Hash) {
 		if !tree.AddLeafHash(&leaf) {
 			panic("duplicate")
@@ -78,13 +84,8 @@ func main() {
 	}
 	signTreeHead := func() {
 		checkpoint := fmt.Sprintf("%s\n%d\n%s\n", origin, tree.Size(), tlog.Hash(tree.GetRootHash()))
-		fmt.Printf("- checkpoint:\n%s", checkpoint)
-
-		signature, err := s.Sign([]byte(checkpoint))
-		if err != nil {
-			log.Fatal(err)
-		}
-		fmt.Printf("- signature: %x\n", signature)
+		n, _ := note.Sign(&note.Note{Text: checkpoint}, s)
+		fmt.Printf("- checkpoint (size %d):\n%s\n", tree.Size(), n)
 	}
 	consistencyProof := func(oldSize uint64) {
 		proof, err := tree.ProveConsistency(oldSize, tree.Size())
@@ -92,25 +93,32 @@ func main() {
 			log.Fatal(err)
 		}
 		fmt.Printf("- consistency proof from size %d:\n", oldSize)
+		fmt.Printf("old %d\n", oldSize)
 		for _, p := range proof {
-			fmt.Printf("%x\n", p)
+			fmt.Printf("%s\n", base64.StdEncoding.EncodeToString(p[:]))
 		}
 	}
 
 	addLeaf(sigsum.Hash{42, 0})
-	rootHash()
 	signTreeHead()
 
 	addLeaf(sigsum.Hash{42, 1})
 	addLeaf(sigsum.Hash{42, 2})
-	rootHash()
-	consistencyProof(1)
 	signTreeHead()
+	consistencyProof(1)
 
 	addLeaf(sigsum.Hash{42, 3})
 	addLeaf(sigsum.Hash{42, 4})
-	rootHash()
+	signTreeHead()
 	consistencyProof(1)
 	consistencyProof(3)
-	signTreeHead()
+}
+
+func noteKeyHash(name string, key []byte) uint32 {
+	h := sha256.New()
+	h.Write([]byte(name))
+	h.Write([]byte("\n"))
+	h.Write(key)
+	sum := h.Sum(nil)
+	return binary.BigEndian.Uint32(sum)
 }
