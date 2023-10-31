@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -34,7 +35,7 @@ var dbFlag = flag.String("db", "litewitness.db", "path to sqlite database")
 var sshAgentFlag = flag.String("ssh-agent", "litewitness.sock", "path to ssh-agent socket")
 var listenFlag = flag.String("listen", "localhost:7380", "address to listen for HTTP requests")
 var keyFlag = flag.String("key", "", "hex-encoded SHA-256 hash of the witness key")
-var bastionFlag = flag.String("bastion", "", "address of the bastion to reverse proxy through")
+var bastionFlag = flag.String("bastion", "", "address of the bastion(s) to reverse proxy through, comma separated, the first online one is selected")
 var testCertFlag = flag.Bool("testcert", false, "use rootCA.pem for connections to the bastion")
 
 func main() {
@@ -59,11 +60,26 @@ func main() {
 	}
 	e := make(chan error, 1)
 	if *bastionFlag != "" {
-		log.Printf("connecting to bastion at %s", *bastionFlag)
-		go func() { e <- connectToBastion(ctx, signer, srv) }()
+		go func() {
+			for _, bastion := range strings.Split(*bastionFlag, ",") {
+				log.Printf("connecting to bastion at %s", bastion)
+				err := connectToBastion(ctx, bastion, signer, srv)
+				if err == errBastionDisconnected {
+					// Connection succeeded and then was interrupted. Restart to
+					// let the scheduler apply any backoff, and then retry all bastions.
+					e <- err
+					return
+				}
+				log.Printf("connecting to bastion at %s failed: %v", bastion, err)
+			}
+			e <- errors.New("couldn't connect to any bastion")
+		}()
 	} else {
-		log.Printf("listening on %s", *listenFlag)
-		go func() { e <- srv.ListenAndServe() }()
+
+		go func() {
+			log.Printf("listening on %s", *listenFlag)
+			e <- srv.ListenAndServe()
+		}()
 	}
 
 	select {
@@ -150,7 +166,9 @@ func (s *signer) Sign(rand io.Reader, data []byte, opts crypto.SignerOpts) (sign
 	return sig.Blob, nil
 }
 
-func connectToBastion(ctx context.Context, signer *signer, srv *http.Server) error {
+var errBastionDisconnected = errors.New("connection to bastion interrupted")
+
+func connectToBastion(ctx context.Context, bastion string, signer *signer, srv *http.Server) error {
 	cert, err := selfSignedCertificate(signer)
 	if err != nil {
 		log.Fatalf("generating self-signed certificate: %v", err)
@@ -177,11 +195,13 @@ func connectToBastion(ctx context.Context, signer *signer, srv *http.Server) err
 			NextProtos: []string{"bastion/0"},
 			RootCAs:    roots,
 		},
-	}).DialContext(dialCtx, "tcp", *bastionFlag)
+	}).DialContext(dialCtx, "tcp", bastion)
 	if err != nil {
 		return fmt.Errorf("connecting to bastion: %v", err)
 	}
-	log.Printf("connected to bastion at %s", *bastionFlag)
+	log.Printf("connected to bastion at %s", bastion)
+	// TODO: find a way to surface the fatal error, especially since with
+	// TLS 1.3 it might be that the bastion rejected the client certificate.
 	(&http2.Server{
 		CountError: func(errType string) {
 			if http2.VerboseLogs {
@@ -193,7 +213,7 @@ func connectToBastion(ctx context.Context, signer *signer, srv *http.Server) err
 		BaseConfig: srv,
 		Handler:    srv.Handler,
 	})
-	return errors.New("connection to bastion interrupted")
+	return errBastionDisconnected
 }
 
 func selfSignedCertificate(key crypto.Signer) ([]byte, error) {
