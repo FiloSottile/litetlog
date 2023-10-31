@@ -25,24 +25,24 @@ go install filippo.io/litetlog/cmd/{litewitness,witnessctl}
 litewitness has no config file. All configuration is done via command line flags
 or `witnessctl` (see below).
 
-  -db string
-    	path to sqlite database (default "litewitness.db")
+    -db string
+            path to sqlite database (default "litewitness.db")
 
 The SQLite database is where known trees and tree heads are stored. It needs to
 be on a filesystem that supports locking (not a network file system). It will be
 created if it does not exist.
 
-  -name string
-    	URL-like (e.g. example.com/foo) name of this witness
+    -name string
+            URL-like (e.g. example.com/foo) name of this witness
 
 The name of the witness is a URL-like value that will appear in cosignature
 lines. It does not need to be where the witness is reachable but should be
 recognizable.
 
-  -key string
-    	hex-encoded SHA-256 hash of the witness key
-  -ssh-agent string
-    	path to ssh-agent socket (default "litewitness.sock")
+    -key string
+            hex-encoded SHA-256 hash of the witness key
+    -ssh-agent string
+            path to ssh-agent socket (default "litewitness.sock")
 
 The witness Ed25519 private key is provided by a ssh-agent instance. The socket
 is specified explicitly because it's recommended that a dedicated instance is
@@ -56,10 +56,10 @@ ssh-agent -a litewitness.sock
 SSH_AUTH_SOCK=litewitness.sock ssh-add litewitness.pem
 ```
 
-  -bastion string
-    	address of the bastion(s) to reverse proxy through, comma separated, the first online one is selected
-  -listen string
-    	address to listen for HTTP requests (default "localhost:7380")
+    -bastion string
+            address of the bastion(s) to reverse proxy through, comma separated, the first online one is selected
+    -listen string
+            address to listen for HTTP requests (default "localhost:7380")
 
 Only one of `-bastion` or `-listen` must be specified. The former will cause
 litewitness to serve requests through a bastion reverse proxy (see below). The
@@ -111,20 +111,20 @@ certificate, "reverses" the direction of the connection, and serves HTTP/2
 requests over that connection. The bastion then proxies requests received at
 `/<hex-encoded hash of Ed25519 key>/*` to that witness.
 
-  -backends string
-    	file of accepted key hashes, one per line, reloaded on SIGHUP
+    -backends string
+            file of accepted key hashes, one per line, reloaded on SIGHUP
 
 The only configuration file of litebastion is the backends file, which lists the
 acceptable client/witness key hashes.
 
-  -listen string
-    	host and port to listen at (default "localhost:8443")
-  -cache string
-    	directory to cache ACME certificates at
-  -email string
-    	email address to register the ACME account with
-  -host string
-    	host to obtain ACME certificate for
+    -listen string
+            host and port to listen at (default "localhost:8443")
+    -cache string
+            directory to cache ACME certificates at
+    -email string
+            email address to register the ACME account with
+    -host string
+            host to obtain ACME certificate for
 
 Since litebastion needs to operate at a lower level than HTTPS on the witness
 side, it can't be behind a reverse proxy, and needs to configure its own TLS
