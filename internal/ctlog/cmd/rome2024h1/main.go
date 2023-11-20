@@ -55,7 +55,7 @@ func main() {
 		NotAfterStart: time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC),
 		NotAfterLimit: time.Date(2024, time.July, 1, 0, 0, 0, 0, time.UTC),
 	}
-
+	metricsPrefix := flag.String("metricsPrefix", "litetlog_", "String value to preface all metrics with e.g. litetlog_<metric>")
 	createFlag := flag.Bool("create", false, "create the log")
 	flag.Parse()
 	if *createFlag {
@@ -70,9 +70,12 @@ func main() {
 	}
 
 	metrics := prometheus.NewRegistry()
-	prometheus.WrapRegistererWith(prometheus.Labels{
-		"log": "rome2024h1",
-	}, metrics).MustRegister(l.Metrics()...)
+	prometheus.WrapRegistererWith(
+		prometheus.Labels{
+			"log": "rome2024h1",
+		},
+		prometheus.WrapRegistererWithPrefix(*metricsPrefix, metrics),
+	).MustRegister(l.Metrics()...)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/debug/pprof/", pprof.Index)
