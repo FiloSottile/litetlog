@@ -8,11 +8,8 @@ package tlogx
 import (
 	"bytes"
 	"crypto"
-	"crypto/ecdsa"
 	"crypto/ed25519"
-	"crypto/rsa"
 	"crypto/sha256"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
@@ -23,8 +20,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	ct "github.com/google/certificate-transparency-go"
-	"golang.org/x/crypto/cryptobyte"
 	"golang.org/x/mod/sumdb/note"
 	"golang.org/x/mod/sumdb/tlog"
 )
@@ -269,90 +264,6 @@ var _ note.Signer = &InjectedSigner{}
 
 func (s *InjectedSigner) Sign(msg []byte) ([]byte, error) { return s.sign(msg) }
 func (s *InjectedSigner) Verifier() note.Verifier         { return &s.verifier }
-
-// NewRFC6962Verifier constructs a new RFC6962Verifier that verifies a RFC 6962
-// TreeHeadSignature formatted per c2sp.org/checkpoint.
-func NewRFC6962Verifier(name string, key crypto.PublicKey) (*RFC6962Verifier, error) {
-	if !isValidName(name) {
-		return nil, fmt.Errorf("invalid name %q", name)
-	}
-
-	pkix, err := x509.MarshalPKIXPublicKey(key)
-	if err != nil {
-		return nil, err
-	}
-	keyID := sha256.Sum256(pkix)
-
-	v := &RFC6962Verifier{}
-	v.name = name
-	v.hash = keyHash(name, append([]byte{0x05}, keyID[:]...))
-	v.verify = func(msg, sig []byte) (ok bool) {
-		c, err := ParseCheckpoint(string(msg))
-		if err != nil {
-			return false
-		}
-		if c.Extension != "" {
-			return false
-		}
-
-		// Parse the RFC6962NoteSignature.
-		var timestamp uint64
-		var hashAlg, sigAlg uint8
-		var signature []byte
-		s := cryptobyte.String(sig)
-		if !s.ReadUint64(&timestamp) ||
-			!s.ReadUint8(&hashAlg) || hashAlg != 4 || !s.ReadUint8(&sigAlg) ||
-			!s.ReadUint16LengthPrefixed((*cryptobyte.String)(&signature)) ||
-			!s.Empty() {
-			return false
-		}
-
-		defer func() {
-			if ok && v.Timestamp != nil {
-				v.Timestamp(timestamp)
-			}
-		}()
-
-		sth := ct.SignedTreeHead{
-			Version:        ct.V1,
-			TreeSize:       uint64(c.N),
-			Timestamp:      timestamp,
-			SHA256RootHash: ct.SHA256Hash(c.Hash),
-		}
-		sthBytes, err := ct.SerializeSTHSignatureInput(sth)
-		if err != nil {
-			return false
-		}
-
-		digest := sha256.Sum256(sthBytes)
-		switch key := key.(type) {
-		case *rsa.PublicKey:
-			if sigAlg != 1 {
-				return false
-			}
-			return rsa.VerifyPKCS1v15(key, crypto.SHA256, digest[:], sig) == nil
-		case *ecdsa.PublicKey:
-			if sigAlg != 3 {
-				return false
-			}
-			return ecdsa.VerifyASN1(key, digest[:], signature)
-		default:
-			return false
-		}
-	}
-
-	return v, nil
-}
-
-type RFC6962Verifier struct {
-	verifier
-
-	// Timestamp, if not nil, is called with the timestamp extracted from any
-	// valid verified signature.
-	Timestamp func(uint64)
-}
-
-var _ note.Verifier = &RFC6962Verifier{}
 
 // isValidName reports whether name is valid.
 // It must be non-empty and not have any Unicode spaces or pluses.
