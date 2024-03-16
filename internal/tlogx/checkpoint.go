@@ -17,23 +17,26 @@ import (
 
 const maxCheckpointSize = 1e6
 
+// A Checkpoint is a tree head to be formatted according to c2sp.org/checkpoint.
+//
+// A checkpoint looks like this:
+//
+//	example.com/origin
+//	923748
+//	nND/nri/U0xuHUrYSy0HtMeal2vzD9V4k/BO79C+QeI=
+//
+// It can be followed by extra extension lines.
 type Checkpoint struct {
-	Origin    string
-	N         int64
-	Hash      tlog.Hash
+	Origin string
+	tlog.Tree
+
+	// Extension is empty or a sequence of non-empty lines,
+	// each terminated by a newline character.
 	Extension string
 }
 
 func ParseCheckpoint(text string) (Checkpoint, error) {
 	// This is an extended version of tlog.ParseTree.
-	//
-	// A checkpoint looks like:
-	//
-	//	example.com/origin
-	//	2
-	//	nND/nri/U0xuHUrYSy0HtMeal2vzD9V4k/BO79C+QeI=
-	//
-	// It can be followed by extra extension lines.
 
 	if strings.Count(text, "\n") < 3 || len(text) > maxCheckpointSize {
 		return Checkpoint{}, errors.New("malformed checkpoint")
@@ -65,10 +68,10 @@ func ParseCheckpoint(text string) (Checkpoint, error) {
 
 	var hash tlog.Hash
 	copy(hash[:], h)
-	return Checkpoint{lines[0], n, hash, lines[3]}, nil
+	return Checkpoint{lines[0], tlog.Tree{N: n, Hash: hash}, lines[3]}, nil
 }
 
-func MarshalCheckpoint(c Checkpoint) string {
+func FormatCheckpoint(c Checkpoint) string {
 	return fmt.Sprintf("%s\n%d\n%s\n%s",
 		c.Origin, c.N, base64.StdEncoding.EncodeToString(c.Hash[:]), c.Extension)
 }
