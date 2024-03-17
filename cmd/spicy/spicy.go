@@ -16,6 +16,8 @@ import (
 )
 
 func main() {
+	verifyFlag := flag.String("verify", "",
+		"verify the file's spicy signature with the given public key")
 	keyFlag := flag.String("key", "",
 		"the log's private key path (written by -init)")
 	initFlag := flag.String("init", "",
@@ -23,6 +25,71 @@ func main() {
 	assetsFlag := flag.String("assets", "",
 		"directory where log entries and metadata are stored")
 	flag.Parse()
+
+	if *verifyFlag != "" {
+		if len(flag.Args()) == 0 {
+			log.Fatalf("no files to verify")
+		}
+		vkey, err := note.NewVerifier(*verifyFlag)
+		if err != nil {
+			log.Fatalf("could not parse public key: %v", err)
+		}
+		for _, path := range flag.Args() {
+			f, err := os.ReadFile(path)
+			if err != nil {
+				log.Fatalf("could not read %q: %v", path, err)
+			}
+			sig, err := os.ReadFile(path + ".spicy")
+			if err != nil {
+				log.Fatalf("could not read %q: %v", path+".spicy", err)
+			}
+			s := string(sig)
+			s, ok := strings.CutPrefix(s, "index ")
+			if !ok {
+				log.Fatalf("malformed spicy signature for %q", path)
+			}
+			i, s, ok := strings.Cut(s, "\n")
+			if !ok {
+				log.Fatalf("malformed spicy signature for %q", path)
+			}
+			index, err := strconv.ParseInt(i, 10, 64)
+			if err != nil {
+				log.Fatalf("malformed spicy signature for %q: %v", path, err)
+			}
+			var proof tlog.RecordProof
+			for {
+				var h string
+				h, s, ok = strings.Cut(s, "\n")
+				if !ok {
+					log.Fatalf("malformed spicy signature for %q", path)
+				}
+				if h == "" {
+					break
+				}
+				hh, err := tlog.ParseHash(h)
+				if err != nil {
+					log.Fatalf("malformed spicy signature for %q: %v", path, err)
+				}
+				proof = append(proof, hh)
+			}
+			m, err := note.Open([]byte(s), note.VerifierList(vkey))
+			if err != nil {
+				log.Fatalf("could not verify checkpoint for %q: %v", path, err)
+			}
+			c, err := tlogx.ParseCheckpoint(m.Text)
+			if err != nil {
+				log.Fatalf("could not parse checkpoint for %q: %v", path, err)
+			}
+			if c.Origin != vkey.Name() {
+				log.Fatalf("spicy signature for %q is for a different log: got %q, want %q", path, c.Origin, vkey.Name())
+			}
+			if err := tlog.CheckRecord(proof, c.N, c.Hash, index, tlog.RecordHash(f)); err != nil {
+				log.Fatalf("could not verify inclusion for %q: %v", path, err)
+			}
+		}
+		fmt.Fprintf(os.Stderr, "Spicy signature(s) verified! 🌶️\n")
+		return
+	}
 
 	if *initFlag != "" {
 		latestPath := filepath.Join(*assetsFlag, "latest")
