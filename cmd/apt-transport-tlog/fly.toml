@@ -1,0 +1,23 @@
+app = "debian-spicy-signatures"
+primary_region = "iad"
+
+[build]
+dockerfile = "Dockerfile"
+
+[[vm]]
+memory = "256mb"
+cpu_kind = "shared"
+cpus = 1
+
+[env]
+RCLONE_CONFIG_TIGRIS_TYPE = "s3"
+RCLONE_CONFIG_TIGRIS_PROVIDER = "Other"
+RCLONE_CONFIG_TIGRIS_ENDPOINT = "https://fly.storage.tigris.dev"
+# RCLONE_CONFIG_TIGRIS_ACCESS_KEY_ID secret
+# RCLONE_CONFIG_TIGRIS_SECRET_ACCESS_KEY secret
+BUCKET = "tigris:debian-spicy-signatures"
+TLOG_KEY_PATH = "/etc/spicy/filippo-io-debian-archive.key"
+
+[[files]]
+guest_path = "/etc/spicy/filippo-io-debian-archive.key"
+secret_name = "TLOG_KEY_BODY"
