@@ -382,15 +382,21 @@ def handle(message_data):
             f.write(r.content)
 
         notify_apt(STATUS, "Verifying InRelease file spicy signature", uri)
-        subprocess.check_call(
+        subprocess.check_output(
             [
                 "spicy",
                 "-verify",
                 "filippo.io/debian-archive+6c61b70b+Aaw9ASjgICSzfKJDcCqz7l3FtSpKvQYCvaRfdfOiIRun",
                 filename,
-            ]
+            ],
+            stderr=subprocess.STDOUT,
         )
-        logger.info("Verified {} 🌶️".format(uri.split("/dists/")[-1]))
+        logger.debug("Verified {} 🌶️".format(uri.split("/dists/")[-1]))
+
+        # TODO(filippo): use fields from the URI_ACQUIRE.
+        base = uri.split("/dists/")[0]
+        dist = uri.split("/dists/")[1].split("/")[0]
+        print("\r 🌶️    {} {} InRelease.spicy".format(base, dist), file=sys.stderr)
 
         return True
 
