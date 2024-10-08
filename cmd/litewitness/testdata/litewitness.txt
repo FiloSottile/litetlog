@@ -16,11 +16,8 @@ exec ssh-add witness_key.pem
 exec litewitness -ssh-agent=$SSH_AUTH_SOCK -name=example.com/witness -key=e933707e0e36c30f01d94b5d81e742da373679d88eb0f85f959ccd80b83b992a &litewitness&
 waitfor localhost:7380
 
-# add-tree-head
-exec hurl --test --error-format long add-tree-head.hurl
-
-# get-tree-size
-exec hurl --test --error-format long get-tree-size.hurl
+# add-checkpoint
+exec hurl --test --error-format long add-checkpoint.hurl
 
 # check that litewitness shut down cleanly
 killall
@@ -53,13 +50,8 @@ cuRlqbxEFXj3QxfqS9wkoIwnLntndBzFufQrcnabBdf1AAAAAAECAwQF
 -----END OPENSSH PRIVATE KEY-----
 
 
--- add-tree-head.hurl --
-GET http://localhost:7380/v1/get-tree-size?origin=sigsum.org%2Fv1%2Ftree%2F4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
-HTTP 200
-[Asserts]
-body == "0\n"
-
-POST http://localhost:7380/v1/add-tree-head
+-- add-checkpoint.hurl --
+POST http://localhost:7380/add-checkpoint
 ```
 old 0
 
@@ -74,7 +66,7 @@ HTTP 200
 body contains "— example.com/witness"
 
 
-POST http://localhost:7380/v1/add-tree-head
+POST http://localhost:7380/add-checkpoint
 ```
 old 1
 KgEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
@@ -91,7 +83,7 @@ HTTP 403
 body contains "invalid signature"
 
 
-POST http://localhost:7380/v1/add-tree-head
+POST http://localhost:7380/add-checkpoint
 ```
 old 1
 KgEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
@@ -108,7 +100,7 @@ HTTP 403
 body contains "unknown log"
 
 
-POST http://localhost:7380/v1/add-tree-head
+POST http://localhost:7380/add-checkpoint
 ```
 old 1
 
@@ -123,7 +115,7 @@ HTTP 422
 body contains "consistency proof"
 
 
-POST http://localhost:7380/v1/add-tree-head
+POST http://localhost:7380/add-checkpoint
 ```
 old 1
 KgEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
@@ -140,7 +132,7 @@ HTTP 422
 body contains "consistency proof"
 
 
-POST http://localhost:7380/v1/add-tree-head
+POST http://localhost:7380/add-checkpoint
 ```
 old 1
 KgEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
@@ -157,7 +149,7 @@ HTTP 200
 body contains "— example.com/witness"
 
 
-POST http://localhost:7380/v1/add-tree-head
+POST http://localhost:7380/add-checkpoint
 ```
 old 1
 KgEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
@@ -172,10 +164,10 @@ QrtXrQZCCvpIgsSmOsah7HdICzMLLyDfxToMql9WTjY=
 ```
 HTTP 409
 [Asserts]
-body contains "tree size"
+body == "3\n"
 
 
-POST http://localhost:7380/v1/add-tree-head
+POST http://localhost:7380/add-checkpoint
 ```
 old 3
 KgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
@@ -193,30 +185,17 @@ HTTP 200
 [Asserts]
 body contains "— example.com/witness"
 
--- get-tree-size.hurl --
-GET http://localhost:7380/v1/get-tree-size?origin=sigsum.org%2Fv1%2Ftree%2F4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
-HTTP 200
-Cache-Control: no-store
+
+POST http://localhost:7380/add-checkpoint
+```
+old 0
+
+sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
+5
+QrtXrQZCCvpIgsSmOsah7HdICzMLLyDfxToMql9WTjY=
+
+— sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562 UgIomw/EOJmWi0i1FQsOj+etB7F8IccFam/jgd6wzRns4QPVmyEZtdvl1U2KEmLOZ/ASRcWJi0tW90dJWAShei7sDww=
+```
+HTTP 409
 [Asserts]
 body == "5\n"
-
-GET http://localhost:7380/v1/get-tree-size?origin=sigsum.org%2Fv1%2Ftree%2F4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562x
-HTTP 404
-
-GET http://localhost:7380/v1/get-tree-size?origin=sigsum.org%2Fv1%2Ftree%2F4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e56
-HTTP 404
-
-GET http://localhost:7380/v1/get-tree-size?origin=
-HTTP 400
-
-GET http://localhost:7380/v1/get-tree-size
-HTTP 400
-
-GET http://localhost:7380/v1/get-tree-size?origin=sigsum.org%2Fv1%2Ftree%2F4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e56a
-HTTP 404
-
-GET http://localhost:7380/v1/get-tree-size?origin=4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
-HTTP 404
-
-GET http://localhost:7380/v1/get-tree-size?origin=sigsum.org%2Fv1%2Ftree%2F4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562%0A
-HTTP 404

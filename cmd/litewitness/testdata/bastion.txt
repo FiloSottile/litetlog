@@ -25,8 +25,8 @@ exec killall -SIGHUP litebastion
 exec litewitness -ssh-agent=$SSH_AUTH_SOCK -name=example.com/witness -bastion=0.0.0.0:443,localhost:8443 -testcert -key=e933707e0e36c30f01d94b5d81e742da373679d88eb0f85f959ccd80b83b992a &litewitness&
 waitfor https://localhost:8443/e933707e0e36c30f01d94b5d81e742da373679d88eb0f85f959ccd80b83b992a/
 
-# add-tree-head
-exec hurl --cacert rootCA.pem --test add-tree-head.hurl
+# add-checkpoint
+exec hurl --cacert rootCA.pem --test add-checkpoint.hurl
 
 # check that litewitness shut down cleanly
 killall
@@ -156,8 +156,8 @@ HfM8tSXxZwhSosXPY/wYE8MIm+R90JAh6ltJAKGUQDax2W2ETzzbpg==
 -----END CERTIFICATE-----
 
 
--- add-tree-head.hurl --
-POST https://localhost:8443/e933707e0e36c30f01d94b5d81e742da373679d88eb0f85f959ccd80b83b992a/v1/add-tree-head
+-- add-checkpoint.hurl --
+POST https://localhost:8443/e933707e0e36c30f01d94b5d81e742da373679d88eb0f85f959ccd80b83b992a/add-checkpoint
 ```
 old 0
 

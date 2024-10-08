@@ -7,7 +7,8 @@ logs designed to be simple and lightweight.
 
 litewitness is a synchronous low-latency cosigning witness. (A witness is a
 service that accepts a new signed tree head, checks its consistency with the
-previous latest tree head, and returns a signature over it.)
+previous latest tree head, and returns a signature over it.) It implements the
+[c2sp.org/tlog-witness](https://c2sp.org/tlog-witness) protocol.
 
 It's backed by a SQLite database for storage, and by an ssh-agent for private
 key operations.
@@ -119,7 +120,7 @@ work.
 
 ### bastion as a library
 
-It mgiht be desirable to integrate bastion functionality in an existing binary,
+It might be desirable to integrate bastion functionality in an existing binary,
 for example because there is only one IP address and hence only one port 443 to
 listen on.
 

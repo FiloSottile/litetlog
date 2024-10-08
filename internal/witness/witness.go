@@ -69,8 +69,7 @@ func NewWitness(dbPath, name string, key crypto.Signer, log *slog.Logger) (*Witn
 		log: log,
 		mux: http.NewServeMux(),
 	}
-	w.mux.Handle("/v1/add-tree-head", http.HandlerFunc(w.serveAddTreeHead))
-	w.mux.Handle("/v1/get-tree-size", http.HandlerFunc(w.serveGetTreeSize))
+	w.mux.Handle("POST /add-checkpoint", http.HandlerFunc(w.serveAddCheckpoint))
 	return w, nil
 }
 
@@ -82,58 +81,33 @@ func (w *Witness) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	w.mux.ServeHTTP(rw, r)
 }
 
+type conflictError struct {
+	known int64
+}
+
+func (*conflictError) Error() string { return "known tree size doesn't match provided old size" }
+
 var errUnknownLog = errors.New("unknown log")
 var errInvalidSignature = errors.New("invalid signature")
-var errConflict = errors.New("known tree size doesn't match provided old size")
 var errBadRequest = errors.New("invalid input")
 var errProof = errors.New("bad consistency proof")
 
-func (w *Witness) serveGetTreeSize(rw http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" {
-		http.Error(rw, "only GET is allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	origin := r.URL.Query().Get("origin")
-	if origin == "" {
-		http.Error(rw, "missing origin parameter", http.StatusBadRequest)
-		return
-	}
-
-	treeSize, _, err := w.getLog(origin)
-	if err == errUnknownLog {
-		http.Error(rw, err.Error(), http.StatusNotFound)
-		return
-	}
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	rw.Header().Set("Cache-Control", "no-store")
-	if _, err := fmt.Fprintf(rw, "%d\n", treeSize); err != nil {
-		w.log.DebugContext(r.Context(), "failed to write size", "err", err)
-	}
-}
-
-func (w *Witness) serveAddTreeHead(rw http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(rw, "only POST is allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
+func (w *Witness) serveAddCheckpoint(rw http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	cosig, err := w.processAddTreeHeadRequest(body)
+	cosig, err := w.processAddCheckpointRequest(body)
+	if err, ok := err.(*conflictError); ok {
+		rw.Header().Set("Content-Type", "text/x.tlog.size")
+		rw.WriteHeader(http.StatusConflict)
+		fmt.Fprintf(rw, "%d\n", err.known)
+		return
+	}
 	switch err {
 	case errUnknownLog, errInvalidSignature:
 		http.Error(rw, err.Error(), http.StatusForbidden)
-		return
-	case errConflict:
-		http.Error(rw, err.Error(), http.StatusConflict)
 		return
 	case errBadRequest:
 		http.Error(rw, err.Error(), http.StatusBadRequest)
@@ -149,7 +123,7 @@ func (w *Witness) serveAddTreeHead(rw http.ResponseWriter, r *http.Request) {
 	rw.Write(cosig)
 }
 
-func (w *Witness) processAddTreeHeadRequest(body []byte) (cosig []byte, err error) {
+func (w *Witness) processAddCheckpointRequest(body []byte) (cosig []byte, err error) {
 	body, noteBytes, ok := bytes.Cut(body, []byte("\n\n"))
 	if !ok {
 		return nil, errBadRequest
@@ -241,7 +215,7 @@ func (w *Witness) checkConsistency(origin string,
 		return err
 	}
 	if knownSize != oldSize {
-		return errConflict
+		return &conflictError{knownSize}
 	}
 	if oldSize == 0 {
 		// This is the first tree head for this log.
@@ -263,7 +237,11 @@ func (w *Witness) persistTreeHead(origin string, oldSize, newSize int64, newHash
 			WHERE origin = ? AND tree_size = ?`,
 		nil, newSize, newHash, origin, oldSize)
 	if err == nil && w.db.Changes() != 1 {
-		err = errConflict
+		knownSize, _, err := w.getLog(origin)
+		if err != nil {
+			return err
+		}
+		return &conflictError{knownSize}
 	}
 	return err
 }

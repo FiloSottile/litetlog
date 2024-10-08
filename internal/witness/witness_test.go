@@ -34,7 +34,7 @@ func TestRace(t *testing.T) {
 	fatalIfErr(t, err)
 	fatalIfErr(t, sqlitex.Exec(w.db, "INSERT INTO key (origin, key) VALUES (?, ?)", nil, origin, k))
 
-	_, err = w.processAddTreeHeadRequest([]byte(`old 0
+	_, err = w.processAddCheckpointRequest([]byte(`old 0
 
 sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562
 1
@@ -55,7 +55,7 @@ KgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 		secondHalf.Lock()
 	}
 	go func() {
-		cosig, err := w.processAddTreeHeadRequest([]byte(`old 1
+		cosig, err := w.processAddCheckpointRequest([]byte(`old 1
 KgEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 KgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 
@@ -65,7 +65,7 @@ RcCI1Nk56ZcSmIEfIn0SleqtV7uvrlXNccFx595Iwl0=
 
 — sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562 UgIom2VbtIcdFbwFAy1n7s6IkAxIY6J/GQOTuZF2ORV39d75cbAj2aQYwyJre36kezNobZs4SUUdrcawfAB8WVrx6go=
 `))
-		if err != errConflict {
+		if _, ok := err.(*conflictError); !ok {
 			t.Errorf("expected conflict, got %v", err)
 		}
 		if cosig != nil {
@@ -78,7 +78,7 @@ RcCI1Nk56ZcSmIEfIn0SleqtV7uvrlXNccFx595Iwl0=
 	firstHalf.Lock()
 
 	w.testingOnlyStallRequest = nil
-	_, err = w.processAddTreeHeadRequest([]byte(`old 1
+	_, err = w.processAddCheckpointRequest([]byte(`old 1
 KgEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 +fUDV+k970B4I3uKrqJM4aP1lloPZP8mvr2Z4wRw2LI=
 KgQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=

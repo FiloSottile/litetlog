@@ -51,7 +51,7 @@ T2SEitir7W6FmBs7OHWyUrh2frtLAvcDrKOx5xu9ao5QAAAAAAECAwQF
 
 
 -- size-1.hurl --
-POST http://localhost:7381/v1/add-tree-head
+POST http://localhost:7381/add-checkpoint
 ```
 old 0
 
@@ -66,7 +66,7 @@ HTTP 200
 body contains "— example.com/witness"
 
 -- bad-signature.hurl --
-POST http://localhost:7381/v1/add-tree-head
+POST http://localhost:7381/add-checkpoint
 ```
 old 1
 KgEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
@@ -81,7 +81,7 @@ RcCI1Nk56ZcSmIEfIn0SleqtV7uvrlXNccFx595Iwl0=
 HTTP 403
 
 -- size-3-failed.hurl --
-POST http://localhost:7381/v1/add-tree-head
+POST http://localhost:7381/add-checkpoint
 ```
 old 0
 
@@ -93,7 +93,7 @@ RcCI1Nk56ZcSmIEfIn0SleqtV7uvrlXNccFx595Iwl0=
 ```
 HTTP 409
 
-POST http://localhost:7381/v1/add-tree-head
+POST http://localhost:7381/add-checkpoint
 ```
 old 1
 
@@ -106,7 +106,7 @@ RcCI1Nk56ZcSmIEfIn0SleqtV7uvrlXNccFx595Iwl0=
 HTTP 422
 
 -- size-3-good.hurl --
-POST http://localhost:7381/v1/add-tree-head
+POST http://localhost:7381/add-checkpoint
 ```
 old 1
 KgEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
@@ -122,7 +122,7 @@ HTTP 200
 [Asserts]
 body contains "— example.com/witness"
 
-POST http://localhost:7381/v1/add-tree-head
+POST http://localhost:7381/add-checkpoint
 ```
 old 3
 
