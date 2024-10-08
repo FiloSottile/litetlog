@@ -3,16 +3,13 @@ package witness
 import (
 	"bytes"
 	"crypto"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"crawshaw.io/sqlite"
 	"crawshaw.io/sqlite/sqlitex"
@@ -25,7 +22,7 @@ type Witness struct {
 	db  *sqlite.Conn
 	s   note.Signer
 	mux *http.ServeMux
-	log func(format string, v ...any)
+	log *slog.Logger
 
 	// testingOnlyStallRequest is called after checking a valid tree head, but
 	// before committing it to the database. It's used in tests to cause a race
@@ -52,19 +49,10 @@ func OpenDB(dbPath string) (*sqlite.Conn, error) {
 			key TEXT NOT NULL, -- note verifier key
 			FOREIGN KEY(origin) REFERENCES log(origin)
 		);
-		-- tree_head is an audit log of validly signed tree heads
-		-- observed by this witness.
-		CREATE TABLE IF NOT EXISTS tree_head (
-			hash TEXT NOT NULL, -- base64-encoded SHA-256 of signed data
-			json_details TEXT,
-			UNIQUE(hash) ON CONFLICT IGNORE
-		);
-		CREATE INDEX IF NOT EXISTS tree_head_origin ON
-			tree_head(json_extract(json_details, '$.origin'));
 	`)
 }
 
-func NewWitness(dbPath, name string, key crypto.Signer, log func(format string, v ...any)) (*Witness, error) {
+func NewWitness(dbPath, name string, key crypto.Signer, log *slog.Logger) (*Witness, error) {
 	db, err := OpenDB(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("initializing database: %v", err)
@@ -124,7 +112,7 @@ func (w *Witness) serveGetTreeSize(rw http.ResponseWriter, r *http.Request) {
 
 	rw.Header().Set("Cache-Control", "no-store")
 	if _, err := fmt.Fprintf(rw, "%d\n", treeSize); err != nil {
-		w.log("Failed to write size: %v", err)
+		w.log.DebugContext(r.Context(), "failed to write size", "err", err)
 	}
 }
 
@@ -198,7 +186,14 @@ func (w *Witness) processAddTreeHeadRequest(body []byte) (cosig []byte, err erro
 	if err != nil {
 		return nil, err
 	}
-	defer func() { w.logValidCheckpoint(origin, n.Text, noteBytes, err) }()
+	defer func() {
+		l := w.log.With("origin", origin, "note", string(noteBytes))
+		if err != nil {
+			l.With("error", err).Warn("rejected signed checkpoint")
+		} else {
+			l.Debug("accepted signed checkpoint")
+		}
+	}()
 	c, err := tlogx.ParseCheckpoint(n.Text)
 	if err != nil {
 		return nil, err
@@ -234,29 +229,6 @@ func splitSignatures(note []byte) ([]byte, error) {
 		return nil, errors.New("invalid note")
 	}
 	return sigs, nil
-}
-
-func (w *Witness) logValidCheckpoint(origin, checkpoint string, note []byte, result error) {
-	h := sha256.Sum256([]byte(checkpoint))
-	hash := base64.StdEncoding.EncodeToString(h[:])
-	m := map[string]interface{}{
-		"origin": origin,
-		"time":   time.Now().Format(time.RFC3339),
-		"note":   string(note),
-	}
-	if result != nil {
-		m["error"] = result.Error()
-	}
-	metadata, err := json.Marshal(m)
-	if err != nil {
-		w.log("Failed to log tree head: %v", m)
-	}
-
-	if err := sqlitex.Exec(w.db,
-		"INSERT INTO tree_head (hash, json_details) VALUES (?, ?)",
-		nil, hash, metadata); err != nil {
-		w.log("Failed to log tree head %v: %v", string(metadata), err)
-	}
 }
 
 func (w *Witness) checkConsistency(origin string,

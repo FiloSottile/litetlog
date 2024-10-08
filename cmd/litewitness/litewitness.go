@@ -14,7 +14,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"math/big"
 	"net"
 	"net/http"
@@ -43,9 +43,9 @@ func main() {
 
 	signer := connectToSSHAgent()
 
-	w, err := witness.NewWitness(*dbFlag, *nameFlag, signer, log.Printf)
+	w, err := witness.NewWitness(*dbFlag, *nameFlag, signer, slog.Default())
 	if err != nil {
-		log.Fatalf("creating witness: %v", err)
+		fatal("creating witness", "err", err)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -62,7 +62,7 @@ func main() {
 	if *bastionFlag != "" {
 		go func() {
 			for _, bastion := range strings.Split(*bastionFlag, ",") {
-				log.Printf("connecting to bastion at %s", bastion)
+				slog.Info("connecting to bastion", "bastion", bastion)
 				err := connectToBastion(ctx, bastion, signer, srv)
 				if err == errBastionDisconnected {
 					// Connection succeeded and then was interrupted. Restart to
@@ -70,40 +70,39 @@ func main() {
 					e <- err
 					return
 				}
-				log.Printf("connecting to bastion at %s failed: %v", bastion, err)
+				slog.Info("connecting to bastion failed", "bastion", bastion, "err", err)
 			}
 			e <- errors.New("couldn't connect to any bastion")
 		}()
 	} else {
-
 		go func() {
-			log.Printf("listening on %s", *listenFlag)
+			slog.Info("listening", "addr", *listenFlag)
 			e <- srv.ListenAndServe()
 		}()
 	}
 
 	select {
 	case <-ctx.Done():
-		log.Printf("shutting down")
+		slog.Info("shutting down")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		srv.Shutdown(ctx)
 	case err := <-e:
-		log.Fatalf("server error: %v", err)
+		fatal("server error", "err", err)
 	}
 }
 
 func connectToSSHAgent() *signer {
 	conn, err := net.Dial("unix", *sshAgentFlag)
 	if err != nil {
-		log.Fatalf("dialing ssh-agent: %v", err)
+		fatal("dialing ssh-agent", "err", err)
 	}
 	a := agent.NewClient(conn)
 	signers, err := a.Signers()
 	if err != nil {
-		log.Fatalf("getting keys from ssh-agent: %v", err)
+		fatal("getting keys from ssh-agent", "err", err)
 	}
-	log.Printf("connected to ssh-agent at %s", *sshAgentFlag)
+	slog.Info("connected to ssh-agent", "addr", *sshAgentFlag)
 	var signer *signer
 	var keys []string
 	for _, s := range signers {
@@ -112,7 +111,7 @@ func connectToSSHAgent() *signer {
 		}
 		ss, err := newSigner(s)
 		if err != nil {
-			log.Fatal(err)
+			fatal("new signer", "err", err)
 		}
 		hh := sha256.Sum256(ss.Public().(ed25519.PublicKey))
 		h := hex.EncodeToString(hh[:])
@@ -123,9 +122,9 @@ func connectToSSHAgent() *signer {
 		keys = append(keys, h)
 	}
 	if signer == nil {
-		log.Fatalf("ssh-agent does not contain Ed25519 key %q, only %q", *keyFlag, keys)
+		fatal("ssh-agent does not contain Ed25519 key", "expected", *keyFlag, "found", keys)
 	}
-	log.Printf("found key %s", *keyFlag)
+	slog.Info("found key", "keyHash", *keyFlag)
 	return signer
 }
 
@@ -171,7 +170,7 @@ var errBastionDisconnected = errors.New("connection to bastion interrupted")
 func connectToBastion(ctx context.Context, bastion string, signer *signer, srv *http.Server) error {
 	cert, err := selfSignedCertificate(signer)
 	if err != nil {
-		log.Fatalf("generating self-signed certificate: %v", err)
+		fatal("generating self-signed certificate", "err", err)
 	}
 	dialCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -180,7 +179,7 @@ func connectToBastion(ctx context.Context, bastion string, signer *signer, srv *
 		roots = x509.NewCertPool()
 		root, err := os.ReadFile("rootCA.pem")
 		if err != nil {
-			log.Fatalf("reading test root: %v", err)
+			fatal("reading test root", "err", err)
 		}
 		roots.AppendCertsFromPEM(root)
 	}
@@ -199,13 +198,13 @@ func connectToBastion(ctx context.Context, bastion string, signer *signer, srv *
 	if err != nil {
 		return fmt.Errorf("connecting to bastion: %v", err)
 	}
-	log.Printf("connected to bastion at %s", bastion)
+	slog.Info("connected to bastion", "bastion", bastion)
 	// TODO: find a way to surface the fatal error, especially since with
 	// TLS 1.3 it might be that the bastion rejected the client certificate.
 	(&http2.Server{
 		CountError: func(errType string) {
 			if http2.VerboseLogs {
-				log.Printf("HTTP/2 server error: %v", errType)
+				slog.Debug("HTTP/2 server error", "type", errType)
 			}
 		},
 	}).ServeConn(conn, &http2.ServeConnOpts{
@@ -226,4 +225,9 @@ func selfSignedCertificate(key crypto.Signer) ([]byte, error) {
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}
 	return x509.CreateCertificate(rand.Reader, tmpl, tmpl, key.Public(), key)
+}
+
+func fatal(msg string, args ...any) {
+	slog.Error(msg, args...)
+	os.Exit(1)
 }

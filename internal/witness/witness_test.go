@@ -4,6 +4,9 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
+	"log/slog"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -18,7 +21,7 @@ func TestRace(t *testing.T) {
 	ss := ed25519.PrivateKey(mustDecodeHex(t,
 		"31ffc2116ecbe003acaa800ab70757bd7d53206e3febef6a6d0796d95530b34f"+
 			"64848ad8abed6e85981b3b3875b252b8767ebb4b02f703aca3b1e71bbd6a8e50"))
-	w, err := NewWitness(":memory:", "example.com", ss, t.Logf)
+	w, err := NewWitness(":memory:", "example.com", ss, slog.New(testLogHandler(t)))
 	fatalIfErr(t, err)
 	t.Cleanup(func() { w.Close() })
 	pk := mustDecodeHex(t, "ffdc2d4d98e4124d3feaf788c0c2f9abfd796083d1f0495437f302ec79cf100f")
@@ -104,6 +107,30 @@ QrtXrQZCCvpIgsSmOsah7HdICzMLLyDfxToMql9WTjY=
 	if hash != mustDecodeHash(t, "42bb57ad06420afa4882c4a63ac6a1ec77480b330b2f20dfc53a0caa5f564e36") {
 		t.Error("unexpected tree hash")
 	}
+}
+
+func testLogHandler(t testing.TB) slog.Handler {
+	h := slog.NewTextHandler(writerFunc(func(p []byte) (n int, err error) {
+		t.Logf("%s", p)
+		return len(p), nil
+	}), &slog.HandlerOptions{
+		AddSource: true,
+		Level:     slog.LevelDebug,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if a.Key == slog.SourceKey {
+				src := a.Value.Any().(*slog.Source)
+				a.Value = slog.StringValue(fmt.Sprintf("%s:%d", filepath.Base(src.File), src.Line))
+			}
+			return a
+		},
+	})
+	return h
+}
+
+type writerFunc func(p []byte) (n int, err error)
+
+func (f writerFunc) Write(p []byte) (n int, err error) {
+	return f(p)
 }
 
 func mustDecodeHex(t *testing.T, s string) []byte {

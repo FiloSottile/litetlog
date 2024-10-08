@@ -23,7 +23,6 @@ func usage() {
 	fmt.Println("    add-log -db <path> -origin <origin> -key <base64-encoded Ed25519 key>")
 	fmt.Println("    add-sigsum-log -db <path> -key <hex-encoded key>")
 	fmt.Println("    list-logs -db <path>")
-	fmt.Println("    list-tree-heads -db <path> [-only-failed]")
 	os.Exit(1)
 }
 
@@ -67,14 +66,6 @@ func main() {
 		fs.Parse(os.Args[2:])
 		db := openDB(*dbFlag)
 		listLogs(db)
-
-	case "list-tree-heads":
-		fs := flag.NewFlagSet("list-logs", flag.ExitOnError)
-		dbFlag := fs.String("db", "litewitness.db", "path to sqlite database")
-		onlyFailedFlag := fs.Bool("only-failed", false, "only show rejected tree heads")
-		fs.Parse(os.Args[2:])
-		db := openDB(*dbFlag)
-		listTreeHeads(db, *onlyFailedFlag)
 
 	default:
 		usage()
@@ -129,19 +120,6 @@ func listLogs(db *sqlite.Conn) {
 		_, err := fmt.Printf("%s\n", stmt.ColumnText(0))
 		return err
 	}); err != nil {
-		log.Fatal(err)
-	}
-}
-
-func listTreeHeads(db *sqlite.Conn, onlyFailed bool) {
-	if err := sqlitex.Exec(db, `
-	SELECT json_details FROM tree_head
-	WHERE NOT(?) OR json_extract(json_details, '$.error') IS NOT NULL
-	ORDER BY json_extract(json_details, '$.timestamp') DESC
-	`, func(stmt *sqlite.Stmt) error {
-		_, err := fmt.Printf("%s\n", stmt.ColumnText(0))
-		return err
-	}, onlyFailed); err != nil {
 		log.Fatal(err)
 	}
 }

@@ -85,22 +85,6 @@ The `list-logs` command lists known logs, in JSON lines like the following.
 
     {"origin":"sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562","size":5,"root_hash":"QrtXrQZCCvpIgsSmOsah7HdICzMLLyDfxToMql9WTjY=","keys":["sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562+5202289b+Af/cLU2Y5BJNP+r3iMDC+av9eWCD0fBJVDfzAux5zxAP"]}
 
-    witnessctl list-tree-heads -db <path> [-only-failed]
-
-The `list-tree-heads` command prints litewitness's audit log. Each unique
-checkpoint with a valid signature is logged exactly once, the first time it is
-seen. The whole note is recorded, as well as the time it was first observed and
-any error that occurred while processing it the first time. Note that if the
-same checkpoint is resubmitted successfully after an error, it is not logged
-again.
-
-Errors are recorded because they might indicate misbehavior from a log. Users
-are protected from such misbehavior because litewitness does not produce a
-cosignature on errors, but the audit record might be useful in an investigation.
-
-    {"note":"sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562\n1\nKgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n\n— sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562 UgIom7fPZTqpxWWhyjWduBvTvGVqsokMbqTArsQilegKoFBJQjUFAmQ0+YeSPM3wfUQMFSzVnnNuWRTYrajXpNUbIQY=\n","origin":"sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562","time":"2023-10-31T12:33:57+01:00"}
-    {"error":"known tree size doesn't match provided old size","note":"sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562\n3\nRcCI1Nk56ZcSmIEfIn0SleqtV7uvrlXNccFx595Iwl0=\n\n— sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562 UgIom2VbtIcdFbwFAy1n7s6IkAxIY6J/GQOTuZF2ORV39d75cbAj2aQYwyJre36kezNobZs4SUUdrcawfAB8WVrx6go=\n","origin":"sigsum.org/v1/tree/4d6d8825a6bb689d459628312889dfbb0bcd41b5211d9e1ce768b0ff0309e562","time":"2023-10-31T12:33:57+01:00"}
-
 ## litebastion
 
 litebastion is a public-service reverse proxy for witnesses that can't be

@@ -18,38 +18,25 @@ waitfor localhost:7381
 exec hurl --test --error-format long size-1.hurl
 exec witnessctl list-logs
 stdout "size":1
-exec witnessctl list-tree-heads -only-failed
-! stdout .
-exec witnessctl list-tree-heads
-stdout \\n1\\n
-linecount stdout 1
 
 # bad signature is not logged
 exec hurl --test --error-format long bad-signature.hurl
-exec witnessctl list-tree-heads
-linecount stdout 1
 
-# conflict is logged once
+# conflicts are logged
 exec hurl --test --error-format long size-3-failed.hurl
 exec witnessctl list-logs
 stdout "size":1
-exec witnessctl list-tree-heads
-linecount stdout 2
-stdout \\n3\\n
-exec witnessctl list-tree-heads -only-failed
-linecount stdout 1
-stdout 'tree size'
 
 # success is not logged again
 exec hurl --test --error-format long size-3-good.hurl
 exec witnessctl list-logs
 stdout "size":3
-exec witnessctl list-tree-heads
-linecount stdout 2
 
-# check that litewitness shut down cleanly
+# check that litewitness logged the errors
 killall
 wait litewitness
+stderr 'known tree size doesn''t match provided old size'
+stderr 'bad consistency proof'
 stderr 'shutting down'
 
 
