@@ -7,8 +7,7 @@
 // self-signed TLS 1.3 certificate, and are reachable at a sub-path prefixed by
 // the key hash.
 //
-// Read more at
-// https://git.glasklar.is/sigsum/project/documentation/-/blob/main/bastion.md.
+// Read more at https://c2sp.org/https-bastion.
 package main
 
 import (
