@@ -22,25 +22,36 @@ InZSsRXdXKTMF3W5wEcd9T6ro5zyOiRMGQsEPSTco6U=
 
 	handler, _ := testLogHandler(t)
 
-	for _, start := range []int64{0, 100000} {
-		t.Run(fmt.Sprintf("Start%d", start), func(t *testing.T) {
+	tests := []struct {
+		start  int64
+		expect int
+	}{
+		{0, 1000},
+		{100000, 1000},
+		{31048497 - 1000, 1000 - 31048497%256},    // Stop before the partial.
+		{31048497 - 31048497%256, 31048497 % 256}, // Consume the partial.
+		{31048497, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("Start%d", tt.start), func(t *testing.T) {
 			t.Run("NoCache", func(t *testing.T) {
 				fetcher := tlogclient.NewSumDBFetcher("https://sum.golang.org/")
 				fetcher.SetLogger(slog.New(handler))
 				client := tlogclient.NewClient(fetcher)
 
-				var ok bool
-				for i := range client.EntriesSumDB(tree, start) {
-					if i >= start+1000 {
-						ok = true
+				count := 0
+				for range client.EntriesSumDB(tree, tt.start) {
+					count++
+					if count >= 1000 {
 						break
 					}
 				}
 				if err := client.Error(); err != nil {
 					t.Fatal(err)
 				}
-				if !ok {
-					t.Error("did not reach 1000 entries")
+				if count != tt.expect {
+					t.Errorf("got %d entries, want %d", count, tt.expect)
 				}
 			})
 
@@ -51,33 +62,34 @@ InZSsRXdXKTMF3W5wEcd9T6ro5zyOiRMGQsEPSTco6U=
 				dirCache.SetLogger(slog.New(handler))
 				client := tlogclient.NewClient(dirCache)
 
-				var ok bool
-				for i := range client.EntriesSumDB(tree, start) {
-					if i >= start+1000 {
-						ok = true
+				count := 0
+				for range client.EntriesSumDB(tree, tt.start) {
+					count++
+					if count >= 1000 {
 						break
 					}
 				}
 				if err := client.Error(); err != nil {
 					t.Fatal(err)
 				}
-				if !ok {
-					t.Error("did not reach 1000 entries")
+				if count != tt.expect {
+					t.Errorf("got %d entries, want %d", count, tt.expect)
 				}
 
+				// Again, from cache.
 				client = tlogclient.NewClient(dirCache)
-				ok = false
-				for i := range client.EntriesSumDB(tree, start) {
-					if i >= start+1000 {
-						ok = true
+				count = 0
+				for range client.EntriesSumDB(tree, tt.start) {
+					count++
+					if count >= 1000 {
 						break
 					}
 				}
 				if err := client.Error(); err != nil {
 					t.Fatal(err)
 				}
-				if !ok {
-					t.Error("did not reach 1000 entries")
+				if count != tt.expect {
+					t.Errorf("got %d entries, want %d", count, tt.expect)
 				}
 			})
 		})

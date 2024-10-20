@@ -45,18 +45,30 @@ func (c *Client) EntriesSumDB(tree tlog.Tree, start int64) iter.Seq2[int64, []by
 		}
 		for {
 			base := start / tileWidth * tileWidth
-			tiles := make([]tlog.Tile, 0, 16)
+			// In regular operations, don't actually fetch the trailing partial
+			// tile, to avoid duplicating that traffic in steady state. The
+			// assumption is that a future call to Entries will pass a bigger
+			// tree where that tile is full. However, if the tree grows too
+			// slowly, we'll get another call where start is at the beginning of
+			// the partial tile; in that case, fetch it.
+			top := tree.N / tileWidth * tileWidth
+			if top-base == 0 {
+				top = tree.N
+			}
+			tiles := make([]tlog.Tile, 0, 50)
 			for i := 0; i < 50; i++ {
 				tileStart := base + int64(i)*tileWidth
-				tileEnd := tileStart + tileWidth
-				if tileEnd > tree.N {
+				if tileStart >= top {
 					break
 				}
+				tileEnd := tileStart + tileWidth
+				if tileEnd > top {
+					tileEnd = top
+				}
 				tiles = append(tiles, tlog.Tile{H: tileHeight, L: -1,
-					N: tileStart / tileWidth, W: tileWidth})
+					N: tileStart / tileWidth, W: int(tileEnd - tileStart)})
 			}
 			if len(tiles) == 0 {
-				// TODO: document and support partial tile optimization.
 				return
 			}
 			tdata, err := c.tr.ReadTiles(tiles)
@@ -66,9 +78,11 @@ func (c *Client) EntriesSumDB(tree tlog.Tree, start int64) iter.Seq2[int64, []by
 			}
 
 			// TODO: hash data tile directly against level 8 hash.
-			indexes := make([]int64, tileWidth*len(tiles))
-			for i := range indexes {
-				indexes[i] = tlog.StoredHashIndex(0, base+int64(i))
+			indexes := make([]int64, 0, tileWidth*len(tiles))
+			for _, t := range tiles {
+				for i := range t.W {
+					indexes = append(indexes, tlog.StoredHashIndex(0, t.N*tileWidth+int64(i)))
+				}
 			}
 			hashes, err := tlog.TileHashReader(tree, c.tr).ReadHashes(indexes)
 			if err != nil {
@@ -78,7 +92,7 @@ func (c *Client) EntriesSumDB(tree tlog.Tree, start int64) iter.Seq2[int64, []by
 
 			for ti, t := range tiles {
 				tileStart := t.N * tileWidth
-				tileEnd := tileStart + tileWidth
+				tileEnd := tileStart + int64(t.W)
 				data := tdata[ti]
 				for i := tileStart; i < tileEnd; i++ {
 					if len(data) == 0 {
@@ -106,10 +120,18 @@ func (c *Client) EntriesSumDB(tree tlog.Tree, start int64) iter.Seq2[int64, []by
 						return
 					}
 				}
+				if len(data) != 0 {
+					c.err = fmt.Errorf("unexpected leftover data in tile")
+					return
+				}
 				start = tileEnd
 			}
 
 			c.tr.SaveTiles(tiles, tdata)
+
+			if start == top {
+				return
+			}
 		}
 	}
 }
