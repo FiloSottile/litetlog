@@ -40,28 +40,35 @@ func (c *Client) Error() error {
 
 func (c *Client) EntriesSumDB(tree tlog.Tree, start int64) iter.Seq2[int64, []byte] {
 	return func(yield func(int64, []byte) bool) {
+		if c.err != nil {
+			return
+		}
 		for {
-			t := tlog.TileForIndex(tileHeight, tlog.StoredHashIndex(0, start))
-			tileStart := t.N * tileWidth
-			tileEnd := tileStart + tileWidth
-			if tileEnd > tree.N {
+			base := start / tileWidth * tileWidth
+			tiles := make([]tlog.Tile, 0, 16)
+			for i := 0; i < 50; i++ {
+				tileStart := base + int64(i)*tileWidth
+				tileEnd := tileStart + tileWidth
+				if tileEnd > tree.N {
+					break
+				}
+				tiles = append(tiles, tlog.Tile{H: tileHeight, L: -1,
+					N: tileStart / tileWidth, W: tileWidth})
+			}
+			if len(tiles) == 0 {
 				// TODO: document and support partial tile optimization.
 				return
 			}
-
-			t.L = -1
-			t.W = tileWidth
-			tt, err := c.tr.ReadTiles([]tlog.Tile{t})
+			tdata, err := c.tr.ReadTiles(tiles)
 			if err != nil {
 				c.err = err
 				return
 			}
-			data := tt[0]
 
 			// TODO: hash data tile directly against level 8 hash.
-			indexes := make([]int64, tileWidth)
+			indexes := make([]int64, tileWidth*len(tiles))
 			for i := range indexes {
-				indexes[i] = tlog.StoredHashIndex(0, tileStart+int64(i))
+				indexes[i] = tlog.StoredHashIndex(0, base+int64(i))
 			}
 			hashes, err := tlog.TileHashReader(tree, c.tr).ReadHashes(indexes)
 			if err != nil {
@@ -69,35 +76,40 @@ func (c *Client) EntriesSumDB(tree tlog.Tree, start int64) iter.Seq2[int64, []by
 				return
 			}
 
-			for i := tileStart; i < tileEnd; i++ {
-				if len(data) == 0 {
-					c.err = fmt.Errorf("unexpected end of tile data")
-					return
-				}
+			for ti, t := range tiles {
+				tileStart := t.N * tileWidth
+				tileEnd := tileStart + tileWidth
+				data := tdata[ti]
+				for i := tileStart; i < tileEnd; i++ {
+					if len(data) == 0 {
+						c.err = fmt.Errorf("unexpected end of tile data")
+						return
+					}
 
-				var entry []byte
-				if idx := bytes.Index(data, []byte("\n\n")); idx >= 0 {
-					// Add back one of the newlines.
-					entry, data = data[:idx+1], data[idx+2:]
-				} else {
-					entry, data = data, nil
-				}
+					var entry []byte
+					if idx := bytes.Index(data, []byte("\n\n")); idx >= 0 {
+						// Add back one of the newlines.
+						entry, data = data[:idx+1], data[idx+2:]
+					} else {
+						entry, data = data, nil
+					}
 
-				if tlog.RecordHash(entry) != hashes[i-tileStart] {
-					c.err = fmt.Errorf("hash mismatch for entry %d", i)
-					return
-				}
+					if tlog.RecordHash(entry) != hashes[i-base] {
+						c.err = fmt.Errorf("hash mismatch for entry %d", i)
+						return
+					}
 
-				if i < start {
-					continue
+					if i < start {
+						continue
+					}
+					if !yield(i, entry) {
+						return
+					}
 				}
-				if !yield(i, entry) {
-					return
-				}
+				start = tileEnd
 			}
 
-			c.tr.SaveTiles([]tlog.Tile{t}, tt)
-			start = tileEnd
+			c.tr.SaveTiles(tiles, tdata)
 		}
 	}
 }
@@ -285,7 +297,7 @@ func (c *PermanentCache) ReadTiles(tiles []tlog.Tile) (data [][]byte, err error)
 		} else if err != nil {
 			return nil, err
 		} else {
-			c.log.Info("loaded tile from cache", "path", path, "size", len(d))
+			c.log.Info("loaded tile from cache", "path", t.Path(), "size", len(d))
 			data[i] = d
 		}
 	}
@@ -311,6 +323,9 @@ func (c *PermanentCache) SaveTiles(tiles []tlog.Tile, data [][]byte) {
 			continue // skip partial tiles
 		}
 		path := filepath.Join(c.dir, t.Path())
+		if _, err := os.Stat(path); err == nil {
+			continue
+		}
 		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 			c.log.Error("failed to create directory", "path", path, "error", err)
 			return

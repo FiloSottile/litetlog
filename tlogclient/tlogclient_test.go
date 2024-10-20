@@ -26,7 +26,6 @@ InZSsRXdXKTMF3W5wEcd9T6ro5zyOiRMGQsEPSTco6U=
 		t.Run(fmt.Sprintf("Start%d", start), func(t *testing.T) {
 			t.Run("NoCache", func(t *testing.T) {
 				fetcher := tlogclient.NewSumDBFetcher("https://sum.golang.org/")
-				fetcher.SetLimit(1)
 				fetcher.SetLogger(slog.New(handler))
 				client := tlogclient.NewClient(fetcher)
 
@@ -47,13 +46,27 @@ InZSsRXdXKTMF3W5wEcd9T6ro5zyOiRMGQsEPSTco6U=
 
 			t.Run("DirCache", func(t *testing.T) {
 				fetcher := tlogclient.NewSumDBFetcher("https://sum.golang.org/")
-				fetcher.SetLimit(1)
 				fetcher.SetLogger(slog.New(handler))
 				dirCache := tlogclient.NewPermanentCache(fetcher, t.TempDir())
 				dirCache.SetLogger(slog.New(handler))
 				client := tlogclient.NewClient(dirCache)
 
 				var ok bool
+				for i := range client.EntriesSumDB(tree, start) {
+					if i >= start+1000 {
+						ok = true
+						break
+					}
+				}
+				if err := client.Error(); err != nil {
+					t.Fatal(err)
+				}
+				if !ok {
+					t.Error("did not reach 1000 entries")
+				}
+
+				client = tlogclient.NewClient(dirCache)
+				ok = false
 				for i := range client.EntriesSumDB(tree, start) {
 					if i >= start+1000 {
 						ok = true
