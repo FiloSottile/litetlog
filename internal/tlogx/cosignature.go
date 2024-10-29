@@ -50,7 +50,7 @@ func NewCosignatureV1Signer(name string, key crypto.Signer) (*CosignatureV1Signe
 
 		// The signature itself is encoded as timestamp || signature.
 		sig := make([]byte, 0, 8+ed25519.SignatureSize)
-		sig = binary.LittleEndian.AppendUint64(sig, t)
+		sig = binary.BigEndian.AppendUint64(sig, t)
 		sig = append(sig, s...)
 		return sig, nil
 	}
@@ -58,7 +58,7 @@ func NewCosignatureV1Signer(name string, key crypto.Signer) (*CosignatureV1Signe
 		if len(sig) != 8+ed25519.SignatureSize {
 			return false
 		}
-		t := binary.LittleEndian.Uint64(sig)
+		t := binary.BigEndian.Uint64(sig)
 		sig = sig[8:]
 		m, err := formatCosignatureV1(t, msg)
 		if err != nil {
