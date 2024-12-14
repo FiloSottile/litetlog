@@ -62,7 +62,6 @@ func main() {
 	if *bastionFlag != "" {
 		go func() {
 			for _, bastion := range strings.Split(*bastionFlag, ",") {
-				slog.Info("connecting to bastion", "bastion", bastion)
 				err := connectToBastion(ctx, bastion, signer, srv)
 				if err == errBastionDisconnected {
 					// Connection succeeded and then was interrupted. Restart to
@@ -70,7 +69,6 @@ func main() {
 					e <- err
 					return
 				}
-				slog.Info("connecting to bastion failed", "bastion", bastion, "err", err)
 			}
 			e <- errors.New("couldn't connect to any bastion")
 		}()
@@ -168,6 +166,7 @@ func (s *signer) Sign(rand io.Reader, data []byte, opts crypto.SignerOpts) (sign
 var errBastionDisconnected = errors.New("connection to bastion interrupted")
 
 func connectToBastion(ctx context.Context, bastion string, signer *signer, srv *http.Server) error {
+	slog.Info("connecting to bastion", "bastion", bastion)
 	cert, err := selfSignedCertificate(signer)
 	if err != nil {
 		fatal("generating self-signed certificate", "err", err)
@@ -196,6 +195,7 @@ func connectToBastion(ctx context.Context, bastion string, signer *signer, srv *
 		},
 	}).DialContext(dialCtx, "tcp", bastion)
 	if err != nil {
+		slog.Info("connecting to bastion failed", "bastion", bastion, "err", err)
 		return fmt.Errorf("connecting to bastion: %v", err)
 	}
 	slog.Info("connected to bastion", "bastion", bastion)

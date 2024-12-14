@@ -95,6 +95,7 @@ var errProof = errors.New("bad consistency proof")
 func (w *Witness) serveAddCheckpoint(rw http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		w.log.DebugContext(r.Context(), "error reading request body", "error", err)
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -120,10 +121,19 @@ func (w *Witness) serveAddCheckpoint(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	rw.Write(cosig)
+	if _, err := rw.Write(cosig); err != nil {
+		w.log.DebugContext(r.Context(), "error writing response", "error", err)
+	}
 }
 
 func (w *Witness) processAddCheckpointRequest(body []byte) (cosig []byte, err error) {
+	l := w.log.With("request", string(body))
+	defer func() {
+		if err != nil {
+			l = l.With("error", err)
+		}
+		l.Debug("processed add-checkpoint request")
+	}()
 	body, noteBytes, ok := bytes.Cut(body, []byte("\n\n"))
 	if !ok {
 		return nil, errBadRequest
@@ -140,6 +150,7 @@ func (w *Witness) processAddCheckpointRequest(body []byte) (cosig []byte, err er
 	if err != nil || oldSize < 0 {
 		return nil, errBadRequest
 	}
+	l = l.With("oldSize", oldSize)
 	proof := make(tlog.TreeProof, len(lines[1:]))
 	for i, h := range lines[1:] {
 		proof[i], err = tlog.ParseHash(h)
@@ -148,6 +159,7 @@ func (w *Witness) processAddCheckpointRequest(body []byte) (cosig []byte, err er
 		}
 	}
 	origin, _, _ := strings.Cut(string(noteBytes), "\n")
+	l = l.With("origin", origin)
 	verifier, err := w.getKeys(origin)
 	if err != nil {
 		return nil, err
@@ -160,18 +172,11 @@ func (w *Witness) processAddCheckpointRequest(body []byte) (cosig []byte, err er
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		l := w.log.With("origin", origin, "note", string(noteBytes))
-		if err != nil {
-			l.With("error", err).Warn("rejected signed checkpoint")
-		} else {
-			l.Debug("accepted signed checkpoint")
-		}
-	}()
 	c, err := tlogx.ParseCheckpoint(n.Text)
 	if err != nil {
 		return nil, err
 	}
+	l = l.With("size", c.N)
 	if err := w.checkConsistency(c.Origin, oldSize, c.N, c.Hash, proof); err != nil {
 		return nil, err
 	}
@@ -232,7 +237,7 @@ func (w *Witness) persistTreeHead(origin string, oldSize, newSize int64, newHash
 	// Alternatively, we could use a database transaction which would be cleaner
 	// but would encode a critical security semantic in the implicit use of the
 	// correct Conn across functions, which is uncomfortable.
-	err := sqlitex.Exec(w.db, `
+	err := w.dbExec(`
 			UPDATE log SET tree_size = ?, tree_hash = ?
 			WHERE origin = ? AND tree_size = ?`,
 		nil, newSize, newHash, origin, oldSize)
@@ -248,7 +253,7 @@ func (w *Witness) persistTreeHead(origin string, oldSize, newSize int64, newHash
 
 func (w *Witness) getLog(origin string) (treeSize int64, treeHash tlog.Hash, err error) {
 	found := false
-	err = sqlitex.Exec(w.db, "SELECT tree_size, tree_hash FROM log WHERE origin = ?",
+	err = w.dbExec("SELECT tree_size, tree_hash FROM log WHERE origin = ?",
 		func(stmt *sqlite.Stmt) error {
 			found = true
 			treeSize = stmt.GetInt64("tree_size")
@@ -263,7 +268,7 @@ func (w *Witness) getLog(origin string) (treeSize int64, treeHash tlog.Hash, err
 
 func (w *Witness) getKeys(origin string) (note.Verifiers, error) {
 	var keys []string
-	err := sqlitex.Exec(w.db, "SELECT key FROM key WHERE origin = ?",
+	err := w.dbExec("SELECT key FROM key WHERE origin = ?",
 		func(stmt *sqlite.Stmt) error {
 			keys = append(keys, stmt.GetText("key"))
 			return nil
@@ -278,9 +283,18 @@ func (w *Witness) getKeys(origin string) (note.Verifiers, error) {
 	for _, k := range keys {
 		v, err := note.NewVerifier(k)
 		if err != nil {
+			w.log.Warn("invalid key in database", "key", k, "error", err)
 			return nil, fmt.Errorf("invalid key %q: %v", k, err)
 		}
 		verifiers = append(verifiers, v)
 	}
 	return note.VerifierList(verifiers...), nil
+}
+
+func (w *Witness) dbExec(query string, resultFn func(stmt *sqlite.Stmt) error, args ...interface{}) error {
+	err := sqlitex.Exec(w.db, query, resultFn, args...)
+	if err != nil {
+		w.log.Error("database error", "error", err)
+	}
+	return err
 }
