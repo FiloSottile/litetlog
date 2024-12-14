@@ -74,11 +74,22 @@ successfully. If the connection drops after establishing, litewitness exits.
 witnessctl is a CLI tool to operate on the litewitness database. It can be used
 while litewitness is running.
 
-    witnessctl add-log -db <path> -origin <origin> -key <base64-encoded Ed25519 key>
+    witnessctl add-log -db <path> -origin <origin>
+
+The `add-log` command adds a new known log starting at a size of zero. Removing
+a log is not supported, as it presents the risk of signing a split view if
+re-added. To disable a log, remove all its keys.
+
+    witnessctl add-key -db <path> -origin <origin> -key <verifier key>
+    witnessctl del-key -db <path> -origin <origin> -key <verifier key>
+
+The `add-key` and `del-key` commands add and remove verifier keys for a known
+log. The name of the key must match the log origin.
+
     witnessctl add-sigsum-log -db <path> -key <hex-encoded key>
 
-The `add-log` and `add-sigsum-log` commands add a new known log starting at a
-size of zero.
+The `add-sigsum-log` command is a helper that adds a new Sigsum log, computing
+the origin and key from a 32-byte hex-encoded Ed25519 public key.
 
     witnessctl list-logs -db <path>
 
