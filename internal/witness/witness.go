@@ -20,7 +20,7 @@ import (
 
 type Witness struct {
 	db  *sqlite.Conn
-	s   note.Signer
+	s   *tlogx.CosignatureV1Signer
 	mux *http.ServeMux
 	log *slog.Logger
 
@@ -79,6 +79,10 @@ func (w *Witness) Close() error {
 
 func (w *Witness) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	w.mux.ServeHTTP(rw, r)
+}
+
+func (w *Witness) VerifierKey() string {
+	return w.s.VerifierKey()
 }
 
 type conflictError struct {

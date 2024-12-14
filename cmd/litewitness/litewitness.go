@@ -34,7 +34,7 @@ var nameFlag = flag.String("name", "", "URL-like (e.g. example.com/foo) name of 
 var dbFlag = flag.String("db", "litewitness.db", "path to sqlite database")
 var sshAgentFlag = flag.String("ssh-agent", "litewitness.sock", "path to ssh-agent socket")
 var listenFlag = flag.String("listen", "localhost:7380", "address to listen for HTTP requests")
-var keyFlag = flag.String("key", "", "hex-encoded SHA-256 hash of the witness key")
+var keyFlag = flag.String("key", "", "SSH fingerprint (with SHA256: prefix) of the witness key")
 var bastionFlag = flag.String("bastion", "", "address of the bastion(s) to reverse proxy through, comma separated, the first online one is selected")
 var testCertFlag = flag.Bool("testcert", false, "use rootCA.pem for connections to the bastion")
 
@@ -47,6 +47,7 @@ func main() {
 	if err != nil {
 		fatal("creating witness", "err", err)
 	}
+	slog.Info("verifier key", "vkey", w.VerifierKey())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -111,6 +112,12 @@ func connectToSSHAgent() *signer {
 		if err != nil {
 			fatal("new signer", "err", err)
 		}
+		if ssh.FingerprintSHA256(s.PublicKey()) == *keyFlag {
+			signer = ss
+			break
+		}
+		// For backwards compatibility, also accept a hex-encoded SHA-256 hash
+		// of the public key, which is what -key used to be.
 		hh := sha256.Sum256(ss.Public().(ed25519.PublicKey))
 		h := hex.EncodeToString(hh[:])
 		if h == *keyFlag {
@@ -122,7 +129,7 @@ func connectToSSHAgent() *signer {
 	if signer == nil {
 		fatal("ssh-agent does not contain Ed25519 key", "expected", *keyFlag, "found", keys)
 	}
-	slog.Info("found key", "keyHash", *keyFlag)
+	slog.Info("found key", "fingerprint", *keyFlag)
 	return signer
 }
 

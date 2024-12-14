@@ -37,6 +37,7 @@ func NewCosignatureV1Signer(name string, key crypto.Signer) (*CosignatureV1Signe
 	s := &CosignatureV1Signer{}
 	s.name = name
 	s.hash = keyHash(name, append([]byte{algCosignatureV1}, k...))
+	s.key = k
 	s.sign = func(msg []byte) ([]byte, error) {
 		t := uint64(time.Now().Unix())
 		m, err := formatCosignatureV1(t, msg)
@@ -101,6 +102,7 @@ type verifier struct {
 	name   string
 	hash   uint32
 	verify func(msg, sig []byte) bool
+	key    ed25519.PublicKey
 }
 
 var _ note.Signer = &CosignatureV1Signer{}
@@ -110,6 +112,10 @@ func (v *verifier) KeyHash() uint32                            { return v.hash }
 func (v *verifier) Verify(msg, sig []byte) bool                { return v.verify(msg, sig) }
 func (s *CosignatureV1Signer) Sign(msg []byte) ([]byte, error) { return s.sign(msg) }
 func (s *CosignatureV1Signer) Verifier() note.Verifier         { return &s.verifier }
+
+func (v *verifier) VerifierKey() string {
+	return fmt.Sprintf("%s+%08x+%s", v.name, v.hash, base64.StdEncoding.EncodeToString(v.key))
+}
 
 // isValidName reports whether name is valid.
 // It must be non-empty and not have any Unicode spaces or pluses.

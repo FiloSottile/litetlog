@@ -41,7 +41,7 @@ lines. It does not need to be where the witness is reachable but should be
 recognizable.
 
     -key string
-            hex-encoded SHA-256 hash of the witness key
+            SSH fingerprint (with SHA256: prefix) of the witness key
     -ssh-agent string
             path to ssh-agent socket (default "litewitness.sock")
 
