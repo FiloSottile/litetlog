@@ -1,0 +1,15 @@
+[Unit]
+Description=Litewitness Transparency Log Witness
+Wants=network-online.target litewitness-ssh-agent.service
+StartLimitIntervalSec=0
+
+[Service]
+EnvironmentFile=/etc/litewitness/litewitness.conf
+ExecStart=/usr/local/bin/litewitness -name "$ORIGIN" -key "$KEY" \
+	-db /var/lib/litewitness/litewitness.db -ssh-agent /var/run/litewitness.sock
+Restart=always
+RestartSteps=10
+RestartMaxDelaySec=1m
+
+[Install]
+WantedBy=multi-user.target

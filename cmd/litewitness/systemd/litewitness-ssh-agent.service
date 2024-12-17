@@ -1,0 +1,11 @@
+[Unit]
+Description=Litewitness SSH Agent
+StartLimitIntervalSec=0
+
+[Service]
+Environment=SSH_AUTH_SOCK=/var/run/litewitness.sock
+ExecStart=/usr/bin/ssh-agent -D -a $SSH_AUTH_SOCK
+ExecStartPost=/usr/bin/ssh-add /etc/litewitness/litewitness.pem
+Restart=always
+RestartSteps=10
+RestartMaxDelaySec=1m
