@@ -9,6 +9,8 @@
 
 - The verifier key of the witness is logged on startup.
 
+- A small homepage listing the verifier key and the known logs is served at /.
+
 ### witnessctl
 
 - New `add-key` and `del-key` commands.

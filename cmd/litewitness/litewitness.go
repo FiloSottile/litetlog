@@ -13,6 +13,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"math/big"
@@ -23,6 +24,8 @@ import (
 	"strings"
 	"time"
 
+	"crawshaw.io/sqlite"
+	"crawshaw.io/sqlite/sqlitex"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/net/http2"
@@ -52,9 +55,13 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
+	mux := http.NewServeMux()
+	mux.Handle("/", w)
+	mux.Handle("/{$}", indexHandler(w))
+
 	srv := &http.Server{
 		Addr:         *listenFlag,
-		Handler:      http.MaxBytesHandler(w, 10*1024),
+		Handler:      http.MaxBytesHandler(mux, 10*1024),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 5 * time.Second,
 		BaseContext:  func(net.Listener) context.Context { return ctx },
@@ -168,6 +175,51 @@ func (s *signer) Sign(rand io.Reader, data []byte, opts crypto.SignerOpts) (sign
 		return nil, err
 	}
 	return sig.Blob, nil
+}
+
+const indexHeader = `
+<!DOCTYPE html>
+<title>litewitness</title>
+<style>
+pre {
+	font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro',
+		Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+}
+:root {
+	color-scheme: light dark;
+}
+.container {
+	max-width: 800px;
+	margin: 100px auto;
+}
+</style>
+<div class="container">
+<pre>
+`
+
+func indexHandler(w *witness.Witness) http.HandlerFunc {
+	return func(rw http.ResponseWriter, r *http.Request) {
+		db, err := witness.OpenDB(*dbFlag)
+		if err != nil {
+			http.Error(rw, "internal error", http.StatusInternalServerError)
+			return
+		}
+		defer db.Close()
+
+		rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+		io.WriteString(rw, indexHeader)
+		fmt.Fprintf(rw, "# litewitness %s\n\n", html.EscapeString(*nameFlag))
+		fmt.Fprintf(rw, "%s\n\n", html.EscapeString(w.VerifierKey()))
+		fmt.Fprintf(rw, "## Logs\n\n")
+		sqlitex.Exec(db, "SELECT origin, tree_size, tree_hash FROM log",
+			func(stmt *sqlite.Stmt) error {
+				fmt.Fprintf(rw, "- %s\n  (size %d, root %s)\n\n",
+					html.EscapeString(stmt.ColumnText(0)),
+					stmt.ColumnInt64(1), stmt.ColumnText(2))
+				return nil
+			},
+		)
+	}
 }
 
 var errBastionDisconnected = errors.New("connection to bastion interrupted")
