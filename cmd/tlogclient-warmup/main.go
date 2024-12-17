@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"filippo.io/litetlog/tlogclient"
+	"filippo.io/litetlog/internal/tlogclient"
 	"github.com/cheggaaa/pb/v3"
 	"golang.org/x/mod/sumdb/tlog"
 )
