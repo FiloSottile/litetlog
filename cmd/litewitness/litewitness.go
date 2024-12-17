@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"crawshaw.io/sqlite"
@@ -43,6 +44,22 @@ var testCertFlag = flag.Bool("testcert", false, "use rootCA.pem for connections 
 
 func main() {
 	flag.Parse()
+
+	var level = new(slog.LevelVar)
+	h := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
+	slog.SetDefault(slog.New(h))
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGUSR1)
+	go func() {
+		for range c {
+			slog.Info("received USR1 signal, toggling log level")
+			if level.Level() == slog.LevelDebug {
+				level.Set(slog.LevelInfo)
+			} else {
+				level.Set(slog.LevelDebug)
+			}
+		}
+	}()
 
 	signer := connectToSSHAgent()
 

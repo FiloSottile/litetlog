@@ -4,6 +4,9 @@
 
 - Reduced Info log level verbosity, increased Debug log level verbosity.
 
+- Sending SIGUSR1 (`killall -USR1 litewitness`) will toggle log level between
+  Info and Debug.
+
 - `-key` is now an SSH fingerprint (with `SHA256:` prefix) as printed by
   `ssh-add -l`. The old format is still accepted for compatibility.
 
