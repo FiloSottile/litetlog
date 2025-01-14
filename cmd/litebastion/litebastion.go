@@ -17,7 +17,7 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -42,21 +42,24 @@ var allowedBackendsFile = flag.String("backends", "", "file of accepted key hash
 type keyHash [sha256.Size]byte
 
 func main() {
-	flag.BoolVar(&http2.VerboseLogs, "h2v", false, "enable HTTP/2 verbose logs")
 	flag.Parse()
+
+	http2.VerboseLogs = true // will go to DEBUG due to SetLogLoggerLevel
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	slog.SetLogLoggerLevel(slog.LevelDebug)
 
 	var getCertificate func(hello *tls.ClientHelloInfo) (*tls.Certificate, error)
 	if *testCertificates {
 		cert, err := tls.LoadX509KeyPair("localhost.pem", "localhost-key.pem")
 		if err != nil {
-			log.Fatalf("can't load test certificates: %v", err)
+			logFatal("can't load test certificates", "err", err)
 		}
 		getCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 			return &cert, nil
 		}
 	} else {
 		if *autocertCache == "" || *autocertHost == "" || *autocertEmail == "" {
-			log.Fatal("-cache, -host, and -email or -testcert are required")
+			logFatal("-cache, -host, and -email or -testcert are required")
 		}
 		m := &autocert.Manager{
 			Cache:      autocert.DirCache(*autocertCache),
@@ -68,7 +71,7 @@ func main() {
 	}
 
 	if *allowedBackendsFile == "" {
-		log.Fatal("-backends is missing")
+		logFatal("-backends is missing")
 	}
 	var allowedBackendsMu sync.RWMutex
 	var allowedBackends map[keyHash]bool
@@ -96,17 +99,17 @@ func main() {
 		return nil
 	}
 	if err := reloadBackends(); err != nil {
-		log.Fatalf("failed to load backends: %v", err)
+		logFatal("failed to load backends", "err", err)
 	}
-	log.Printf("loaded %d backends", len(allowedBackends))
+	slog.Info("loaded backends", "count", len(allowedBackends))
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGHUP)
 	go func() {
 		for range c {
 			if err := reloadBackends(); err != nil {
-				log.Printf("failed to reload backends: %v", err)
+				slog.Error("failed to reload backends", "err", err)
 			} else {
-				log.Printf("reloaded backends")
+				slog.Info("reloaded backends")
 			}
 		}
 	}()
@@ -120,7 +123,7 @@ func main() {
 		GetCertificate: getCertificate,
 	})
 	if err != nil {
-		log.Fatalf("failed to load bastion: %v", err)
+		logFatal("failed to create bastion", "err", err)
 	}
 
 	hs := &http.Server{
@@ -134,23 +137,29 @@ func main() {
 		},
 	}
 	if err := b.ConfigureServer(hs); err != nil {
-		log.Fatalln("failed to configure bastion:", err)
+		logFatal("failed to configure bastion", "err", err)
 	}
 	if err := http2.ConfigureServer(hs, nil); err != nil {
-		log.Fatalln("failed to configure HTTP/2:", err)
+		logFatal("failed to configure HTTP/2", "err", err)
 	}
 
-	log.Printf("listening on %s", *listenAddr)
+	slog.Info("listening", "addr", *listenAddr)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	e := make(chan error, 1)
 	go func() { e <- hs.ListenAndServeTLS("", "") }()
 	select {
 	case <-ctx.Done():
+		slog.Info("shutting down on interrupt")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		hs.Shutdown(ctx)
 	case err := <-e:
-		log.Fatalf("server error: %v", err)
+		slog.Error("server error", "err", err)
 	}
+}
+
+func logFatal(msg string, args ...interface{}) {
+	slog.Error(msg, args...)
+	os.Exit(1)
 }

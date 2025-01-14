@@ -19,7 +19,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"strings"
@@ -40,9 +40,9 @@ type Config struct {
 	// AllowedBackend may be called concurrently.
 	AllowedBackend func(keyHash [sha256.Size]byte) bool
 
-	// Log is used to log backend connections and errors in forwarding requests.
-	// If nil, [log.Default] is used.
-	Log *log.Logger
+	// Log is used to log backend connections states (as INFO) and errors in
+	// forwarding requests (as DEBUG). If nil, [slog.Default] is used.
+	Log *slog.Logger
 }
 
 // A Bastion keeps track of backend connections, and serves HTTP requests by
@@ -61,7 +61,7 @@ type keyHash [sha256.Size]byte
 func New(c *Config) (*Bastion, error) {
 	b := &Bastion{c: c}
 	b.pool = &backendConnectionsPool{
-		log:   log.Default(),
+		log:   slog.Default(),
 		conns: make(map[keyHash]*http2.ClientConn),
 	}
 	if c.Log != nil {
@@ -76,7 +76,7 @@ func New(c *Config) (*Bastion, error) {
 			pr.Out.URL.RawQuery = pr.In.URL.RawQuery
 		},
 		Transport: b.pool,
-		ErrorLog:  c.Log,
+		ErrorLog:  slog.NewLogLogger(b.pool.log.Handler(), slog.LevelDebug),
 	}
 	return b, nil
 }
@@ -155,7 +155,7 @@ func (b *Bastion) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type backendConnectionsPool struct {
-	log *log.Logger
+	log *slog.Logger
 	sync.RWMutex
 	conns map[keyHash]*http2.ClientConn
 }
@@ -178,20 +178,24 @@ func (p *backendConnectionsPool) RoundTrip(r *http.Request) (*http.Response, err
 
 func (p *backendConnectionsPool) handleBackend(hs *http.Server, c *tls.Conn, h http.Handler) {
 	backend := sha256.Sum256(c.ConnectionState().PeerCertificates[0].PublicKey.(ed25519.PublicKey))
+	l := p.log.With("backend", backend, "remote", c.RemoteAddr())
 	t := &http2.Transport{
 		// Send a PING every 15s, with the default 15s timeout.
 		ReadIdleTimeout: 15 * time.Second,
+		CountError: func(errType string) {
+			l.Info("HTTP/2 transport error", "type", errType)
+		},
 	}
 	cc, err := t.NewClientConn(c)
 	if err != nil {
-		p.log.Printf("%x: failed to convert to HTTP/2 client connection: %v", backend, err)
+		l.Info("failed to convert to HTTP/2 client connection", "err", err)
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := cc.Ping(ctx); err != nil {
-		p.log.Printf("%x: did not respond to PING: %v", backend, err)
+		l.Info("did not respond to PING", "err", err)
 		return
 	}
 
@@ -206,12 +210,11 @@ func (p *backendConnectionsPool) handleBackend(hs *http.Server, c *tls.Conn, h h
 	p.conns[backend] = cc
 	p.Unlock()
 
-	p.log.Printf("%x: accepted new backend connection", backend)
-	// We need not to return, or http.Server will close this connection. There
-	// is no way to wait for the ClientConn's closing, so we poll. We could
-	// switch this to a Server.ConnState callback with some plumbing.
+	l.Info("accepted new backend connection")
+	// We need not to return, or http.Server will close this connection.
+	// There is no way to wait for the ClientConn's closing, so we poll.
 	for !cc.State().Closed {
 		time.Sleep(1 * time.Second)
 	}
-	p.log.Printf("%x: backend connection expired", backend)
+	l.Info("backend connection closed")
 }
