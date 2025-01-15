@@ -55,6 +55,10 @@ type Bastion struct {
 
 type keyHash [sha256.Size]byte
 
+func (kh keyHash) String() string {
+	return hex.EncodeToString(kh[:])
+}
+
 // New returns a new Bastion.
 //
 // The Config must not be modified after the call to New.

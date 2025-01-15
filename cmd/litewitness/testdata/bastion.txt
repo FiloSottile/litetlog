@@ -37,7 +37,7 @@ stderr 'shutting down'
 killall
 wait litebastion
 stderr 'reloaded backends'
-stderr 'e933707e0e36c30f01d94b5d81e742da373679d88eb0f85f959ccd80b83b992a: accepted new backend connection'
+stderr 'msg="accepted new backend connection" backend=e933707e0e36c30f01d94b5d81e742da373679d88eb0f85f959ccd80b83b992a'
 
 # witnessctl list-logs
 exec witnessctl list-logs

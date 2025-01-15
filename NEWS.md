@@ -1,3 +1,9 @@
+## v0.4.1
+
+### litebastion
+
+- Fixed formatting of backend key hashes in logs.
+
 ## v0.4.0
 
 ### litebastion
