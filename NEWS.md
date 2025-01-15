@@ -1,3 +1,23 @@
+## v0.4.0
+
+### litebastion
+
+- Backend connection lifecycle events (including new details about errors) are
+  now logged at the INFO level (the default). Client-side errors and HTTP/2
+  debug logs are now logged at the DEBUG level.
+
+- `Config.Log` is now a `log/slog.Logger` instead of a `log.Logger`.
+
+- `/logz` now exposes the debug logs in a simple public web console. At most ten
+  clients can connect to it at a time.
+
+- New `-home-redirect` flag redirects the root to the given URL.
+
+### litewitness
+
+- `/logz` now exposes the debug logs in a simple public web console. At most ten
+  clients can connect to it at a time.
+
 ## v0.3.0
 
 ### litewitness

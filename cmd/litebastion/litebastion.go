@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"filippo.io/litetlog/bastion"
+	"filippo.io/litetlog/internal/slogconsole"
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/net/http2"
@@ -38,14 +39,18 @@ var autocertCache = flag.String("cache", "", "directory to cache ACME certificat
 var autocertHost = flag.String("host", "", "host to obtain ACME certificate for")
 var autocertEmail = flag.String("email", "", "")
 var allowedBackendsFile = flag.String("backends", "", "file of accepted key hashes, one per line, reloaded on SIGHUP")
+var homeRedirect = flag.String("home-redirect", "", "redirect / to this URL")
 
 type keyHash [sha256.Size]byte
 
 func main() {
 	flag.Parse()
 
+	console := slogconsole.New(nil)
+	h := slog.NewTextHandler(os.Stderr, nil)
+	slog.SetDefault(slog.New(slogconsole.MultiHandler(h, console)))
+
 	http2.VerboseLogs = true // will go to DEBUG due to SetLogLoggerLevel
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	slog.SetLogLoggerLevel(slog.LevelDebug)
 
 	var getCertificate func(hello *tls.ClientHelloInfo) (*tls.Certificate, error)
@@ -124,6 +129,15 @@ func main() {
 	})
 	if err != nil {
 		logFatal("failed to create bastion", "err", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/", b)
+	mux.Handle("/logz", console)
+	if *homeRedirect != "" {
+		mux.HandleFunc("/{$}", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, *homeRedirect, http.StatusFound)
+		})
 	}
 
 	hs := &http.Server{

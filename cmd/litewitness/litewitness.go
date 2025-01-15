@@ -31,6 +31,7 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/net/http2"
 
+	"filippo.io/litetlog/internal/slogconsole"
 	"filippo.io/litetlog/internal/witness"
 )
 
@@ -47,7 +48,9 @@ func main() {
 
 	var level = new(slog.LevelVar)
 	h := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
-	slog.SetDefault(slog.New(h))
+	console := slogconsole.New(nil)
+	slog.SetDefault(slog.New(slogconsole.MultiHandler(h, console)))
+
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGUSR1)
 	go func() {
@@ -74,6 +77,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/", w)
+	mux.Handle("/logz", console)
 	mux.Handle("/{$}", indexHandler(w))
 
 	srv := &http.Server{
@@ -279,9 +283,7 @@ func connectToBastion(ctx context.Context, bastion string, signer *signer, srv *
 	// TLS 1.3 it might be that the bastion rejected the client certificate.
 	(&http2.Server{
 		CountError: func(errType string) {
-			if http2.VerboseLogs {
-				slog.Debug("HTTP/2 server error", "type", errType)
-			}
+			slog.Debug("HTTP/2 server error", "type", errType)
 		},
 	}).ServeConn(conn, &http2.ServeConnOpts{
 		Context:    ctx,
