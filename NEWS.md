@@ -13,6 +13,9 @@
 
 - New `-home-redirect` flag redirects the root to the given URL.
 
+- Connections to removed backends are now closed on SIGHUP, using the new
+  `Bastion.FlushBackendConnections` method.
+
 ### litewitness
 
 - `/logz` now exposes the debug logs in a simple public web console. At most ten

@@ -99,12 +99,10 @@ func (b *Bastion) ConfigureServer(srv *http.Server) error {
 		NextProtos: []string{"bastion/0"},
 		ClientAuth: tls.RequireAnyClientCert,
 		VerifyConnection: func(cs tls.ConnectionState) error {
-			leaf := cs.PeerCertificates[0]
-			pk, ok := leaf.PublicKey.(ed25519.PublicKey)
-			if !ok {
-				return errors.New("self-signed certificate key type is not Ed25519")
+			h, err := backendHash(cs)
+			if err != nil {
+				return err
 			}
-			h := sha256.Sum256(pk)
 			if !b.c.AllowedBackend(h) {
 				return fmt.Errorf("unrecognized backend %x", h)
 			}
@@ -133,6 +131,14 @@ func (b *Bastion) ConfigureServer(srv *http.Server) error {
 	return nil
 }
 
+func backendHash(cs tls.ConnectionState) (keyHash, error) {
+	pk, ok := cs.PeerCertificates[0].PublicKey.(ed25519.PublicKey)
+	if !ok {
+		return keyHash{}, errors.New("self-signed certificate key type is not Ed25519")
+	}
+	return sha256.Sum256(pk), nil
+}
+
 // ServeHTTP serves requests rooted at "/<hex key hash>/" by routing them to the
 // backend that authenticated with that key. Other requests are served a 404 Not
 // Found status.
@@ -152,6 +158,30 @@ func (b *Bastion) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r = r.Clone(ctx)
 	r.URL.Path = "/" + path
 	b.proxy.ServeHTTP(w, r)
+}
+
+// FlushBackendConnections closes all for backends that don't pass
+// [Config.AllowedBackend] anymore.
+//
+// ctx is passed to [http2.ClientConn.Shutdown], and FlushBackendConnections
+// waits for all connections to be closed.
+func (b *Bastion) FlushBackendConnections(ctx context.Context) {
+	wg := sync.WaitGroup{}
+	defer wg.Wait()
+	b.pool.Lock()
+	defer b.pool.Unlock()
+	for kh, cc := range b.pool.conns {
+		if !b.c.AllowedBackend(kh) {
+			wg.Add(1)
+			go func() {
+				if err := cc.Shutdown(ctx); err != nil {
+					cc.Close()
+				}
+				wg.Done()
+			}()
+			delete(b.pool.conns, kh)
+		}
+	}
 }
 
 type backendConnectionsPool struct {
@@ -177,7 +207,11 @@ func (p *backendConnectionsPool) RoundTrip(r *http.Request) (*http.Response, err
 }
 
 func (p *backendConnectionsPool) handleBackend(hs *http.Server, c *tls.Conn, h http.Handler) {
-	backend := sha256.Sum256(c.ConnectionState().PeerCertificates[0].PublicKey.(ed25519.PublicKey))
+	backend, err := backendHash(c.ConnectionState())
+	if err != nil {
+		p.log.Info("failed to get backend hash", "err", err)
+		return
+	}
 	l := p.log.With("backend", backend, "remote", c.RemoteAddr())
 	t := &http2.Transport{
 		// Send a PING every 15s, with the default 15s timeout.
@@ -204,7 +238,9 @@ func (p *backendConnectionsPool) handleBackend(hs *http.Server, c *tls.Conn, h h
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 			defer cancel()
-			oldCC.Shutdown(ctx)
+			if err := oldCC.Shutdown(ctx); err != nil {
+				oldCC.Close()
+			}
 		}()
 	}
 	p.conns[backend] = cc

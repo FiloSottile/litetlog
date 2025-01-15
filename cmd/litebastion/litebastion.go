@@ -107,17 +107,6 @@ func main() {
 		logFatal("failed to load backends", "err", err)
 	}
 	slog.Info("loaded backends", "count", len(allowedBackends))
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, syscall.SIGHUP)
-	go func() {
-		for range c {
-			if err := reloadBackends(); err != nil {
-				slog.Error("failed to reload backends", "err", err)
-			} else {
-				slog.Info("reloaded backends")
-			}
-		}
-	}()
 
 	b, err := bastion.New(&bastion.Config{
 		AllowedBackend: func(keyHash [sha256.Size]byte) bool {
@@ -130,6 +119,21 @@ func main() {
 	if err != nil {
 		logFatal("failed to create bastion", "err", err)
 	}
+
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGHUP)
+	go func() {
+		for range c {
+			if err := reloadBackends(); err != nil {
+				slog.Error("failed to reload backends", "err", err)
+			} else {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				b.FlushBackendConnections(ctx)
+				cancel()
+				slog.Info("reloaded backends")
+			}
+		}
+	}()
 
 	mux := http.NewServeMux()
 	mux.Handle("/", b)
