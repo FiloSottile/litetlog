@@ -172,6 +172,7 @@ func (h *commonHandler) serveHTML(w http.ResponseWriter, _ *http.Request) {
 	fmt.Fprintf(w, `
 		<!DOCTYPE html>
 		<title>litewitness</title>
+		<meta name="viewport" content="width=device-width, initial-scale=1">
 		<style>
 			pre {
 				font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro',
@@ -185,18 +186,15 @@ func (h *commonHandler) serveHTML(w http.ResponseWriter, _ *http.Request) {
 		<script>
 			const es = new EventSource("");
 			const pre = document.querySelector("pre");
-			es.onopen = () => {
-				pre.textContent += "connected\n";
-				pre.scrollTop = pre.scrollHeight
-			};
-			es.onerror = () => {
-				pre.textContent += "connection lost\n";
-				pre.scrollTop = pre.scrollHeight
-			};
-			es.onmessage = e => {
-				pre.textContent += e.data + "\n";
-				pre.scrollTop = pre.scrollHeight;
-			};
+			const html = document.querySelector("html");
+			function log(txt) {
+				const atBottom = html.scrollTop + html.clientHeight >= html.scrollHeight;
+				pre.textContent += txt + "\n";
+				if (atBottom) html.scrollTop = html.scrollHeight;
+			}
+			es.onopen = () => log("connected");
+			es.onerror = () => log("connection lost");
+			es.onmessage = e => log(e.data);
 		</script>`)
 }
 

@@ -4,6 +4,12 @@
 
 - Fixed vkey encoding in logs and home page.
 
+- Improved `/logz` web page.
+
+### litebastion
+
+- Improved `/logz` web page.
+
 ## v0.4.1
 
 ### litebastion
