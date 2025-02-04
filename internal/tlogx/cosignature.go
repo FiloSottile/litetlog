@@ -114,7 +114,8 @@ func (s *CosignatureV1Signer) Sign(msg []byte) ([]byte, error) { return s.sign(m
 func (s *CosignatureV1Signer) Verifier() note.Verifier         { return &s.verifier }
 
 func (v *verifier) VerifierKey() string {
-	return fmt.Sprintf("%s+%08x+%s", v.name, v.hash, base64.StdEncoding.EncodeToString(v.key))
+	return fmt.Sprintf("%s+%08x+%s", v.name, v.hash, base64.StdEncoding.EncodeToString(
+		append([]byte{algCosignatureV1}, v.key...)))
 }
 
 // isValidName reports whether name is valid.

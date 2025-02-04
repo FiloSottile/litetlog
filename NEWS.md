@@ -1,3 +1,9 @@
+## v0.4.2
+
+### litewitness
+
+- Fixed vkey encoding in logs and home page.
+
 ## v0.4.1
 
 ### litebastion
