@@ -2,6 +2,7 @@ package witness
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	"errors"
 	"fmt"
@@ -19,7 +20,7 @@ import (
 )
 
 type Witness struct {
-	db  *sqlite.Conn
+	db  *sqlitex.Pool
 	s   *tlogx.CosignatureV1Signer
 	mux *http.ServeMux
 	log *slog.Logger
@@ -30,13 +31,19 @@ type Witness struct {
 	testingOnlyStallRequest func()
 }
 
-func OpenDB(dbPath string) (*sqlite.Conn, error) {
-	db, err := sqlite.OpenConn(dbPath, 0)
+func OpenDB(dbPath string) (*sqlitex.Pool, error) {
+	db, err := sqlitex.Open(dbPath, 0, 10)
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %v", err)
 	}
 
-	return db, sqlitex.ExecScript(db, `
+	conn := db.Get(context.Background())
+	if conn == nil {
+		return nil, fmt.Errorf("opening database: no available connection")
+	}
+	defer db.Put(conn)
+
+	return db, sqlitex.ExecScript(conn, `
 		PRAGMA strict_types = ON;
 		PRAGMA foreign_keys = ON;
 		CREATE TABLE IF NOT EXISTS log (
@@ -103,7 +110,13 @@ func (w *Witness) serveAddCheckpoint(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	cosig, err := w.processAddCheckpointRequest(body)
+	conn := w.db.Get(r.Context())
+	if conn == nil {
+		return
+	}
+	defer w.db.Put(conn)
+
+	cosig, err := w.processAddCheckpointRequest(conn, body)
 	if err, ok := err.(*conflictError); ok {
 		rw.Header().Set("Content-Type", "text/x.tlog.size")
 		rw.WriteHeader(http.StatusConflict)
@@ -130,7 +143,7 @@ func (w *Witness) serveAddCheckpoint(rw http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (w *Witness) processAddCheckpointRequest(body []byte) (cosig []byte, err error) {
+func (w *Witness) processAddCheckpointRequest(conn *sqlite.Conn, body []byte) (cosig []byte, err error) {
 	l := w.log.With("request", string(body))
 	defer func() {
 		if err != nil {
@@ -164,7 +177,7 @@ func (w *Witness) processAddCheckpointRequest(body []byte) (cosig []byte, err er
 	}
 	origin, _, _ := strings.Cut(string(noteBytes), "\n")
 	l = l.With("origin", origin)
-	verifier, err := w.getKeys(origin)
+	verifier, err := w.getKeys(conn, origin)
 	if err != nil {
 		return nil, err
 	}
@@ -181,13 +194,13 @@ func (w *Witness) processAddCheckpointRequest(body []byte) (cosig []byte, err er
 		return nil, err
 	}
 	l = l.With("size", c.N)
-	if err := w.checkConsistency(c.Origin, oldSize, c.N, c.Hash, proof); err != nil {
+	if err := w.checkConsistency(conn, c.Origin, oldSize, c.N, c.Hash, proof); err != nil {
 		return nil, err
 	}
 	if w.testingOnlyStallRequest != nil {
 		w.testingOnlyStallRequest()
 	}
-	if err := w.persistTreeHead(c.Origin, oldSize, c.N, c.Hash); err != nil {
+	if err := w.persistTreeHead(conn, c.Origin, oldSize, c.N, c.Hash); err != nil {
 		return nil, err
 	}
 	signed, err := note.Sign(&note.Note{Text: n.Text}, w.s)
@@ -214,12 +227,12 @@ func splitSignatures(note []byte) ([]byte, error) {
 	return sigs, nil
 }
 
-func (w *Witness) checkConsistency(origin string,
+func (w *Witness) checkConsistency(conn *sqlite.Conn, origin string,
 	oldSize, newSize int64, newHash tlog.Hash, proof tlog.TreeProof) error {
 	if oldSize > newSize {
 		return errBadRequest
 	}
-	knownSize, oldHash, err := w.getLog(origin)
+	knownSize, oldHash, err := w.getLog(conn, origin)
 	if err != nil {
 		return err
 	}
@@ -236,17 +249,17 @@ func (w *Witness) checkConsistency(origin string,
 	return nil
 }
 
-func (w *Witness) persistTreeHead(origin string, oldSize, newSize int64, newHash tlog.Hash) error {
+func (w *Witness) persistTreeHead(conn *sqlite.Conn, origin string, oldSize, newSize int64, newHash tlog.Hash) error {
 	// Check oldSize against the database to prevent rolling back on a race.
 	// Alternatively, we could use a database transaction which would be cleaner
 	// but would encode a critical security semantic in the implicit use of the
 	// correct Conn across functions, which is uncomfortable.
-	err := w.dbExec(`
+	err := w.dbExec(conn, `
 			UPDATE log SET tree_size = ?, tree_hash = ?
 			WHERE origin = ? AND tree_size = ?`,
 		nil, newSize, newHash, origin, oldSize)
-	if err == nil && w.db.Changes() != 1 {
-		knownSize, _, err := w.getLog(origin)
+	if err == nil && conn.Changes() != 1 {
+		knownSize, _, err := w.getLog(conn, origin)
 		if err != nil {
 			return err
 		}
@@ -255,9 +268,9 @@ func (w *Witness) persistTreeHead(origin string, oldSize, newSize int64, newHash
 	return err
 }
 
-func (w *Witness) getLog(origin string) (treeSize int64, treeHash tlog.Hash, err error) {
+func (w *Witness) getLog(conn *sqlite.Conn, origin string) (treeSize int64, treeHash tlog.Hash, err error) {
 	found := false
-	err = w.dbExec("SELECT tree_size, tree_hash FROM log WHERE origin = ?",
+	err = w.dbExec(conn, "SELECT tree_size, tree_hash FROM log WHERE origin = ?",
 		func(stmt *sqlite.Stmt) error {
 			found = true
 			treeSize = stmt.GetInt64("tree_size")
@@ -270,9 +283,9 @@ func (w *Witness) getLog(origin string) (treeSize int64, treeHash tlog.Hash, err
 	return
 }
 
-func (w *Witness) getKeys(origin string) (note.Verifiers, error) {
+func (w *Witness) getKeys(conn *sqlite.Conn, origin string) (note.Verifiers, error) {
 	var keys []string
-	err := w.dbExec("SELECT key FROM key WHERE origin = ?",
+	err := w.dbExec(conn, "SELECT key FROM key WHERE origin = ?",
 		func(stmt *sqlite.Stmt) error {
 			keys = append(keys, stmt.GetText("key"))
 			return nil
@@ -295,8 +308,8 @@ func (w *Witness) getKeys(origin string) (note.Verifiers, error) {
 	return note.VerifierList(verifiers...), nil
 }
 
-func (w *Witness) dbExec(query string, resultFn func(stmt *sqlite.Stmt) error, args ...interface{}) error {
-	err := sqlitex.Exec(w.db, query, resultFn, args...)
+func (w *Witness) dbExec(conn *sqlite.Conn, query string, resultFn func(stmt *sqlite.Stmt) error, args ...interface{}) error {
+	err := sqlitex.Exec(conn, query, resultFn, args...)
 	if err != nil {
 		w.log.Error("database error", "error", err)
 	}
