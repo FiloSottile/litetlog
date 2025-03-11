@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	"crawshaw.io/sqlite"
 	"crawshaw.io/sqlite/sqlitex"
@@ -19,10 +20,12 @@ import (
 )
 
 type Witness struct {
-	db  *sqlite.Conn
 	s   *tlogx.CosignatureV1Signer
 	mux *http.ServeMux
 	log *slog.Logger
+
+	dmMu sync.Mutex
+	db   *sqlite.Conn
 
 	// testingOnlyStallRequest is called after checking a valid tree head, but
 	// before committing it to the database. It's used in tests to cause a race
@@ -74,6 +77,8 @@ func NewWitness(dbPath, name string, key crypto.Signer, log *slog.Logger) (*Witn
 }
 
 func (w *Witness) Close() error {
+	w.dmMu.Lock()
+	defer w.dmMu.Unlock()
 	return w.db.Close()
 }
 
@@ -241,11 +246,11 @@ func (w *Witness) persistTreeHead(origin string, oldSize, newSize int64, newHash
 	// Alternatively, we could use a database transaction which would be cleaner
 	// but would encode a critical security semantic in the implicit use of the
 	// correct Conn across functions, which is uncomfortable.
-	err := w.dbExec(`
+	changes, err := w.dbExecWithChanges(`
 			UPDATE log SET tree_size = ?, tree_hash = ?
 			WHERE origin = ? AND tree_size = ?`,
 		nil, newSize, newHash, origin, oldSize)
-	if err == nil && w.db.Changes() != 1 {
+	if err == nil && changes != 1 {
 		knownSize, _, err := w.getLog(origin)
 		if err != nil {
 			return err
@@ -296,9 +301,22 @@ func (w *Witness) getKeys(origin string) (note.Verifiers, error) {
 }
 
 func (w *Witness) dbExec(query string, resultFn func(stmt *sqlite.Stmt) error, args ...interface{}) error {
+	w.dmMu.Lock()
+	defer w.dmMu.Unlock()
 	err := sqlitex.Exec(w.db, query, resultFn, args...)
 	if err != nil {
 		w.log.Error("database error", "error", err)
 	}
 	return err
+}
+
+func (w *Witness) dbExecWithChanges(query string, resultFn func(stmt *sqlite.Stmt) error, args ...interface{}) (int, error) {
+	w.dmMu.Lock()
+	defer w.dmMu.Unlock()
+	err := sqlitex.Exec(w.db, query, resultFn, args...)
+	if err != nil {
+		w.log.Error("database error", "error", err)
+		return 0, err
+	}
+	return w.db.Changes(), nil
 }

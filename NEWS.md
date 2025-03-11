@@ -1,3 +1,9 @@
+## v0.4.3
+
+### litewitness
+
+- Fixed SQLite concurrency issue.
+
 ## v0.4.2
 
 ### litewitness
