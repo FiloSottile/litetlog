@@ -47,6 +47,7 @@ func main() {
 	flag.Parse()
 
 	console := slogconsole.New(nil)
+	console.SetFilter(slogconsole.IPAddressFilter)
 	h := slog.NewTextHandler(os.Stderr, nil)
 	slog.SetDefault(slog.New(slogconsole.MultiHandler(h, console)))
 

@@ -49,6 +49,7 @@ func main() {
 	var level = new(slog.LevelVar)
 	h := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
 	console := slogconsole.New(nil)
+	console.SetFilter(slogconsole.IPAddressFilter)
 	slog.SetDefault(slog.New(slogconsole.MultiHandler(h, console)))
 
 	c := make(chan os.Signal, 1)

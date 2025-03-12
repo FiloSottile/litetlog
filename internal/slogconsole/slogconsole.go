@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -39,6 +40,7 @@ type commonHandler struct {
 	mu      sync.RWMutex
 	clients []chan []byte
 	limit   int
+	filter  *regexp.Regexp
 }
 
 var _ http.Handler = &Handler{}
@@ -108,6 +110,18 @@ func (h *Handler) SetLimit(limit int) {
 	h.ch.limit = limit
 }
 
+var IPAddressFilter = regexp.MustCompile(`\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b|\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4}::(?:[0-9a-fA-F]{1,4})?(?::[0-9a-fA-F]{1,4}){0,6}\b`)
+
+// SetFilter sets a regular expression that will be redacted in the logs. The
+// new filter only applies to new clients.
+//
+// The default is nil, which means no filtering.
+func (h *Handler) SetFilter(filter *regexp.Regexp) {
+	h.ch.mu.Lock()
+	defer h.ch.mu.Unlock()
+	h.ch.filter = filter
+}
+
 // ServeHTTP implements [http.Handler].
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	accept := strings.Split(r.Header.Get("Accept"), ",")
@@ -141,6 +155,7 @@ func (h *commonHandler) serveSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.clients = append(h.clients, ch)
+	filter := h.filter
 	h.mu.Unlock()
 	defer func() {
 		h.mu.Lock()
@@ -155,6 +170,9 @@ func (h *commonHandler) serveSSE(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case b := <-ch:
+			if filter != nil {
+				b = filter.ReplaceAll(b, []byte("***"))
+			}
 			// Note that TextHandler promises "a single line" "in a single
 			// serialized call to io.Writer.Write" for each Record.
 			if _, err := fmt.Fprintf(w, "data: %s\n", b); err != nil {

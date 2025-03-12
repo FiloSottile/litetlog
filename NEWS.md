@@ -4,6 +4,12 @@
 
 - Fixed SQLite concurrency issue.
 
+- Redacted IP addresses from `/logz`.
+
+### litebastion
+
+- Redacted IP addresses from `/logz`.
+
 ## v0.4.2
 
 ### litewitness
