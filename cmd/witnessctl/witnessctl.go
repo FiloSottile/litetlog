@@ -93,7 +93,7 @@ func addKey(db *sqlite.Conn, origin string, vk string) {
 		log.Fatalf("Error parsing verifier key: %v", err)
 	}
 	if v.Name() != origin {
-		log.Fatalf("Verifier key name %q does not match origin %q.", v.Name(), origin)
+		log.Printf("Warning: verifier key name %q does not match origin %q.", v.Name(), origin)
 	}
 	err = sqlitex.Exec(db, "INSERT INTO key (origin, key) VALUES (?, ?)", nil, origin, vk)
 	if err != nil {

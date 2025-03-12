@@ -6,6 +6,10 @@
 
 - Redacted IP addresses from `/logz`.
 
+### witnessctl
+
+- Allow verifier keys that don't match the origin, like the Go sumdb's.
+
 ### litebastion
 
 - Redacted IP addresses from `/logz`.

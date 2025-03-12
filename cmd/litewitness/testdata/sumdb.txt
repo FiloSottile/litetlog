@@ -1,0 +1,53 @@
+# set up log
+exec witnessctl add-log -origin 'go.sum database tree'
+exec witnessctl add-key -origin 'go.sum database tree' -key sum.golang.org+033de0ae+Ac4zctda0e5eza+HJyk9SxEdh+s3Ux18htTTAD8OuAn8
+
+# start ssh-agent
+env SSH_AUTH_SOCK=$WORK/s # barely below the max path length
+! exec ssh-agent -a $SSH_AUTH_SOCK -D & # ssh-agent always exits 2
+waitfor $SSH_AUTH_SOCK
+chmod 600 witness_key.pem
+exec ssh-add witness_key.pem
+
+# start litewitness
+exec litewitness -listen=localhost:7381 -ssh-agent=$SSH_AUTH_SOCK -name=example.com/witness -key=e933707e0e36c30f01d94b5d81e742da373679d88eb0f85f959ccd80b83b992a &litewitness&
+waitfor localhost:7381
+
+# add-checkpoint
+exec hurl --test --error-format long add-checkpoint.hurl
+
+# check that litewitness shut down cleanly
+killall
+wait litewitness
+stderr 'shutting down'
+
+# witnessctl list-logs
+exec witnessctl list-logs
+stdout 'go.sum database tree'
+stdout "size":35225469
+
+
+-- witness_key.pem --
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtz
+c2gtZWQyNTUxOQAAACBkhIrYq+1uhZgbOzh1slK4dn67SwL3A6yjsecbvWqOUAAA
+AIgN5+09DeftPQAAAAtzc2gtZWQyNTUxOQAAACBkhIrYq+1uhZgbOzh1slK4dn67
+SwL3A6yjsecbvWqOUAAAAEAx/8IRbsvgA6yqgAq3B1e9fVMgbj/r72ptB5bZVTCz
+T2SEitir7W6FmBs7OHWyUrh2frtLAvcDrKOx5xu9ao5QAAAAAAECAwQF
+-----END OPENSSH PRIVATE KEY-----
+
+
+-- add-checkpoint.hurl --
+POST http://localhost:7381/add-checkpoint
+```
+old 0
+
+go.sum database tree
+35225469
+vt5T6GaLCXvyHFl9VUvvItR43XZxfLgftEcTyO3eJCQ=
+
+— sum.golang.org Az3grpukl5AXaVfYkLiDGORx/DN2nlcS5kZHR5uYOBV2KA2HgXpD+gu9HHONebHLAyaKbbTM75QTtPydhKCExixSfwQ=
+```
+HTTP 200
+[Asserts]
+body contains "— example.com/witness"
