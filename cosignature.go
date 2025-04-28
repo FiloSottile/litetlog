@@ -13,11 +13,13 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
 
+	"golang.org/x/crypto/cryptobyte"
 	"golang.org/x/mod/sumdb/note"
 )
 
@@ -136,4 +138,20 @@ func keyHash(name string, key []byte) uint32 {
 	h.Write(key)
 	sum := h.Sum(nil)
 	return binary.BigEndian.Uint32(sum)
+}
+
+// CosignatureTimestamp returns the timestamp of the cosignature, which is the
+// time at which the witness signed the checkpoint.
+func CosignatureTimestamp(sig note.Signature) (int64, error) {
+	sigBytes, err := base64.StdEncoding.DecodeString(sig.Base64)
+	if err != nil {
+		return 0, err
+	}
+	var timestamp uint64
+	s := cryptobyte.String(sigBytes)
+	if !s.Skip(4 /* key hash */) || !s.ReadUint64(&timestamp) ||
+		timestamp > math.MaxInt64 {
+		return 0, errors.New("malformed cosignature")
+	}
+	return int64(timestamp), nil
 }
