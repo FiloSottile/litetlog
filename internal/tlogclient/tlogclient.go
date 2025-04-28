@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"filippo.io/litetlog/internal/tlogx"
 	"golang.org/x/mod/sumdb/tlog"
 	"golang.org/x/sync/errgroup"
 )
@@ -23,22 +24,30 @@ const tileWidth = 1 << tileHeight
 
 type Client struct {
 	tr  tlog.TileReader
+	cut func([]byte) ([]byte, tlog.Hash, []byte, error)
 	err error
 }
 
 func NewClient(tr tlog.TileReader) *Client {
-	// edgeMemoryCache keeps track of two edges: the rightmost one that's used
-	// to compute the tree hash, and the one that moves through the tree as we
-	// progress through entries.
 	tr = &edgeMemoryCache{tr: tr, t: make(map[int][2]tileWithData)}
 	return &Client{tr: tr}
+}
+
+// SetCutEntry sets the function to split the next entry from a tile.
+//
+// The entry is surfaced by the Entries method, the record hash is used to check
+// inclusion in the tree, and the rest is passed to the next invocation of cut.
+//
+// The input tile is never empty. cut must not modify the tile.
+func (c *Client) SetCutEntry(cut func(tile []byte) (entry []byte, rh tlog.Hash, rest []byte, err error)) {
+	c.cut = cut
 }
 
 func (c *Client) Error() error {
 	return c.err
 }
 
-func (c *Client) EntriesSumDB(tree tlog.Tree, start int64) iter.Seq2[int64, []byte] {
+func (c *Client) Entries(tree tlog.Tree, start int64) iter.Seq2[int64, []byte] {
 	return func(yield func(int64, []byte) bool) {
 		if c.err != nil {
 			return
@@ -96,19 +105,18 @@ func (c *Client) EntriesSumDB(tree tlog.Tree, start int64) iter.Seq2[int64, []by
 				data := tdata[ti]
 				for i := tileStart; i < tileEnd; i++ {
 					if len(data) == 0 {
-						c.err = fmt.Errorf("unexpected end of tile data")
+						c.err = fmt.Errorf("unexpected end of tile data for tile %d", t.N)
 						return
 					}
 
-					var entry []byte
-					if idx := bytes.Index(data, []byte("\n\n")); idx >= 0 {
-						// Add back one of the newlines.
-						entry, data = data[:idx+1], data[idx+2:]
-					} else {
-						entry, data = data, nil
+					entry, rh, rest, err := c.cut(data)
+					if err != nil {
+						c.err = fmt.Errorf("failed to cut entry %d: %w", i, err)
+						return
 					}
+					data = rest
 
-					if tlog.RecordHash(entry) != hashes[i-base] {
+					if rh != hashes[i-base] {
 						c.err = fmt.Errorf("hash mismatch for entry %d", i)
 						return
 					}
@@ -121,7 +129,7 @@ func (c *Client) EntriesSumDB(tree tlog.Tree, start int64) iter.Seq2[int64, []by
 					}
 				}
 				if len(data) != 0 {
-					c.err = fmt.Errorf("unexpected leftover data in tile")
+					c.err = fmt.Errorf("unexpected leftover data in tile %d", t.N)
 					return
 				}
 				start = tileEnd
@@ -136,11 +144,24 @@ func (c *Client) EntriesSumDB(tree tlog.Tree, start int64) iter.Seq2[int64, []by
 	}
 }
 
+func CutSumDBEntry(tile []byte) (entry []byte, rh tlog.Hash, rest []byte, err error) {
+	if idx := bytes.Index(tile, []byte("\n\n")); idx >= 0 {
+		// Add back one of the newlines.
+		entry, rest = tile[:idx+1], tile[idx+2:]
+	} else {
+		entry, rest = tile, nil
+	}
+	return entry, tlog.RecordHash(entry), rest, nil
+}
+
 type tileWithData struct {
 	tlog.Tile
 	data []byte
 }
 
+// edgeMemoryCache is a [tlog.TileReader] that caches two edges in the tree: the
+// rightmost one that's used to compute the tree hash, and the one that moves
+// through the tree as we progress through entries.
 type edgeMemoryCache struct {
 	tr tlog.TileReader
 	t  map[int][2]tileWithData
@@ -221,22 +242,28 @@ func tileLess(a, b tlog.Tile) bool {
 }
 
 type TileFetcher struct {
-	base  string
-	hc    *http.Client
-	log   *slog.Logger
-	limit int
+	base     string
+	hc       *http.Client
+	log      *slog.Logger
+	limit    int
+	tilePath func(tlog.Tile) string
 }
 
-func NewSumDBFetcher(base string) *TileFetcher {
+func NewTileFetcher(base string) *TileFetcher {
 	if !strings.HasSuffix(base, "/") {
 		base += "/"
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.MaxIdleConnsPerHost = transport.MaxIdleConns
-	return &TileFetcher{base: base, hc: &http.Client{
-		Transport: transport,
-		Timeout:   10 * time.Second,
-	}, log: slog.New(slogDiscardHandler{})}
+	return &TileFetcher{
+		base: base,
+		hc: &http.Client{
+			Transport: transport,
+			Timeout:   10 * time.Second,
+		},
+		log:      slog.New(slogDiscardHandler{}),
+		tilePath: tlogx.TilePath,
+	}
 }
 
 func (f *TileFetcher) SetLogger(log *slog.Logger) {
@@ -251,6 +278,10 @@ func (f *TileFetcher) SetLimit(limit int) {
 	f.limit = limit
 }
 
+func (f *TileFetcher) SetTilePath(tilePath func(tlog.Tile) string) {
+	f.tilePath = tilePath
+}
+
 func (f *TileFetcher) Height() int {
 	return tileHeight
 }
@@ -262,20 +293,24 @@ func (f *TileFetcher) ReadTiles(tiles []tlog.Tile) (data [][]byte, err error) {
 		errGroup.SetLimit(f.limit)
 	}
 	for i, t := range tiles {
+		if t.H != tileHeight {
+			return nil, fmt.Errorf("unexpected tile height %d", t.H)
+		}
 		errGroup.Go(func() error {
-			resp, err := f.hc.Get(f.base + t.Path())
+			path := f.tilePath(t)
+			resp, err := f.hc.Get(f.base + path)
 			if err != nil {
-				return fmt.Errorf("%s: %w", t.Path(), err)
+				return fmt.Errorf("%s: %w", path, err)
 			}
 			defer resp.Body.Close()
 			if resp.StatusCode != http.StatusOK {
-				return fmt.Errorf("%s: unexpected status code %d", t.Path(), resp.StatusCode)
+				return fmt.Errorf("%s: unexpected status code %d", path, resp.StatusCode)
 			}
 			data[i], err = io.ReadAll(resp.Body)
 			if err != nil {
-				return fmt.Errorf("%s: %w", t.Path(), err)
+				return fmt.Errorf("%s: %w", path, err)
 			}
-			f.log.InfoContext(ctx, "fetched tile", "path", t.Path(), "size", len(data[i]))
+			f.log.InfoContext(ctx, "fetched tile", "path", path, "size", len(data[i]))
 			return nil
 		})
 	}
@@ -291,14 +326,24 @@ func (slogDiscardHandler) Handle(context.Context, slog.Record) error { return ni
 func (slogDiscardHandler) WithAttrs(attrs []slog.Attr) slog.Handler  { return slogDiscardHandler{} }
 func (slogDiscardHandler) WithGroup(name string) slog.Handler        { return slogDiscardHandler{} }
 
+// PermanentCache is a [tlog.TileReader] that caches verified, non-partial tiles
+// in a filesystem directory, following the same structure as c2sp.org/tlog-tiles
+// (even if the wrapped TileReader fetches tiles following a different scheme,
+// such as c2sp.org/static-ct-api or go.dev/design/25530-sumdb).
 type PermanentCache struct {
 	tr  tlog.TileReader
 	dir string
 	log *slog.Logger
 }
 
-func NewPermanentCache(tr tlog.TileReader, dir string) *PermanentCache {
-	return &PermanentCache{tr: tr, dir: dir, log: slog.New(slogDiscardHandler{})}
+func NewPermanentCache(tr tlog.TileReader, dir string) (*PermanentCache, error) {
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		return nil, fmt.Errorf("cache directory %q does not exist or is not a directory: %w", dir, err)
+	}
+	if tr.Height() != tileHeight {
+		return nil, fmt.Errorf("only tile height 8 is supported")
+	}
+	return &PermanentCache{tr: tr, dir: dir, log: slog.New(slogDiscardHandler{})}, nil
 }
 
 func (c *PermanentCache) SetLogger(log *slog.Logger) {
@@ -306,20 +351,23 @@ func (c *PermanentCache) SetLogger(log *slog.Logger) {
 }
 
 func (c *PermanentCache) Height() int {
-	return c.tr.Height()
+	return tileHeight
 }
 
 func (c *PermanentCache) ReadTiles(tiles []tlog.Tile) (data [][]byte, err error) {
 	data = make([][]byte, len(tiles))
 	missing := make([]tlog.Tile, 0, len(tiles))
 	for i, t := range tiles {
-		path := filepath.Join(c.dir, t.Path())
+		if t.H != tileHeight {
+			return nil, fmt.Errorf("unexpected tile height %d", t.H)
+		}
+		path := filepath.Join(c.dir, tlogx.TilePath(t))
 		if d, err := os.ReadFile(path); errors.Is(err, os.ErrNotExist) {
 			missing = append(missing, t)
 		} else if err != nil {
 			return nil, err
 		} else {
-			c.log.Info("loaded tile from cache", "path", t.Path(), "size", len(d))
+			c.log.Info("loaded tile from cache", "path", tlogx.TilePath(t), "size", len(d))
 			data[i] = d
 		}
 	}
@@ -341,10 +389,14 @@ func (c *PermanentCache) ReadTiles(tiles []tlog.Tile) (data [][]byte, err error)
 
 func (c *PermanentCache) SaveTiles(tiles []tlog.Tile, data [][]byte) {
 	for i, t := range tiles {
+		if t.H != tileHeight {
+			c.log.Error("unexpected tile height", "tile", t, "height", t.H)
+			continue
+		}
 		if t.W != tileWidth {
 			continue // skip partial tiles
 		}
-		path := filepath.Join(c.dir, t.Path())
+		path := filepath.Join(c.dir, tlogx.TilePath(t))
 		if _, err := os.Stat(path); err == nil {
 			continue
 		}
@@ -355,7 +407,7 @@ func (c *PermanentCache) SaveTiles(tiles []tlog.Tile, data [][]byte) {
 		if err := os.WriteFile(path, data[i], 0600); err != nil {
 			c.log.Error("failed to write file", "path", path, "error", err)
 		} else {
-			c.log.Info("saved tile to cache", "path", t.Path(), "size", len(data[i]))
+			c.log.Info("saved tile to cache", "path", tlogx.TilePath(t), "size", len(data[i]))
 		}
 	}
 	c.tr.SaveTiles(tiles, data)

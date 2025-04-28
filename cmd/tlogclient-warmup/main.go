@@ -26,12 +26,17 @@ func main() {
 	}
 	cacheDir = filepath.Join(cacheDir, "tlogclient-warmup")
 
-	fetcher := tlogclient.NewSumDBFetcher("https://sum.golang.org/")
-	dirCache := tlogclient.NewPermanentCache(fetcher, cacheDir)
+	fetcher := tlogclient.NewTileFetcher("https://sum.golang.org/")
+	fetcher.SetTilePath(func(t tlog.Tile) string { return t.Path() })
+	dirCache, err := tlogclient.NewPermanentCache(fetcher, cacheDir)
+	if err != nil {
+		panic(err)
+	}
 	client := tlogclient.NewClient(dirCache)
+	client.SetCutEntry(tlogclient.CutSumDBEntry)
 
 	bar := pb.Start64(tree.N)
-	for range client.EntriesSumDB(tree, 0) {
+	for range client.Entries(tree, 0) {
 		bar.Increment()
 	}
 	bar.Finish()

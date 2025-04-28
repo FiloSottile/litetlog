@@ -36,12 +36,14 @@ InZSsRXdXKTMF3W5wEcd9T6ro5zyOiRMGQsEPSTco6U=
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("Start%d", tt.start), func(t *testing.T) {
 			t.Run("NoCache", func(t *testing.T) {
-				fetcher := tlogclient.NewSumDBFetcher("https://sum.golang.org/")
+				fetcher := tlogclient.NewTileFetcher("https://sum.golang.org/")
+				fetcher.SetTilePath(func(t tlog.Tile) string { return t.Path() })
 				fetcher.SetLogger(slog.New(handler))
 				client := tlogclient.NewClient(fetcher)
+				client.SetCutEntry(tlogclient.CutSumDBEntry)
 
 				count := 0
-				for range client.EntriesSumDB(tree, tt.start) {
+				for range client.Entries(tree, tt.start) {
 					count++
 					if count >= 1000 {
 						break
@@ -56,14 +58,19 @@ InZSsRXdXKTMF3W5wEcd9T6ro5zyOiRMGQsEPSTco6U=
 			})
 
 			t.Run("DirCache", func(t *testing.T) {
-				fetcher := tlogclient.NewSumDBFetcher("https://sum.golang.org/")
+				fetcher := tlogclient.NewTileFetcher("https://sum.golang.org/")
+				fetcher.SetTilePath(func(t tlog.Tile) string { return t.Path() })
 				fetcher.SetLogger(slog.New(handler))
-				dirCache := tlogclient.NewPermanentCache(fetcher, t.TempDir())
+				dirCache, err := tlogclient.NewPermanentCache(fetcher, t.TempDir())
+				if err != nil {
+					t.Fatal(err)
+				}
 				dirCache.SetLogger(slog.New(handler))
 				client := tlogclient.NewClient(dirCache)
+				client.SetCutEntry(tlogclient.CutSumDBEntry)
 
 				count := 0
-				for range client.EntriesSumDB(tree, tt.start) {
+				for range client.Entries(tree, tt.start) {
 					count++
 					if count >= 1000 {
 						break
@@ -78,8 +85,9 @@ InZSsRXdXKTMF3W5wEcd9T6ro5zyOiRMGQsEPSTco6U=
 
 				// Again, from cache.
 				client = tlogclient.NewClient(dirCache)
+				client.SetCutEntry(tlogclient.CutSumDBEntry)
 				count = 0
-				for range client.EntriesSumDB(tree, tt.start) {
+				for range client.Entries(tree, tt.start) {
 					count++
 					if count >= 1000 {
 						break
