@@ -2,6 +2,16 @@
 
 Renamed repository to Torchwood.
 
+### torchwood
+
+- Exposed various [c2sp.org/signed-note][], [c2sp.org/tlog-cosignature][],
+  [c2sp.org/tlog-checkpoint][], and [c2sp.org/tlog-tiles][] functions.
+
+[c2sp.org/signed-note]: https://c2sp.org/signed-note
+[c2sp.org/tlog-cosignature]: https://c2sp.org/tlog-cosignature
+[c2sp.org/tlog-checkpoint]: https://c2sp.org/tlog-checkpoint
+[c2sp.org/tlog-tiles]: https://c2sp.org/tlog-tiles
+
 ## v0.4.3
 
 ### litewitness

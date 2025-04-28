@@ -1,4 +1,4 @@
-package tlogx
+package torchwood
 
 import (
 	"crypto/ed25519"
@@ -12,6 +12,8 @@ import (
 
 const algEd25519 = 1
 
+// NewVerifierFromSigner constructs a new c2sp.org/signed-note [note.Verifier]
+// from an encoded Ed25519 signer key, the same input as [note.NewSigner].
 func NewVerifierFromSigner(skey string) (note.Verifier, error) {
 	priv1, skey := chop(skey, "+")
 	priv2, skey := chop(skey, "+")
@@ -43,6 +45,17 @@ func NewVerifierFromSigner(skey string) (note.Verifier, error) {
 		},
 	}, nil
 }
+
+type verifier struct {
+	name   string
+	hash   uint32
+	verify func(msg, sig []byte) bool
+	key    ed25519.PublicKey
+}
+
+func (v *verifier) Name() string                { return v.name }
+func (v *verifier) KeyHash() uint32             { return v.hash }
+func (v *verifier) Verify(msg, sig []byte) bool { return v.verify(msg, sig) }
 
 // chop chops s at the first instance of sep, if any,
 // and returns the text before and after sep.

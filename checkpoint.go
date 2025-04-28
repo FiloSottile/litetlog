@@ -3,7 +3,7 @@
 // license that can be found at
 // https://go.googlesource.com/go/+/refs/heads/master/LICENSE.
 
-package tlogx
+package torchwood
 
 import (
 	"encoding/base64"
@@ -71,7 +71,11 @@ func ParseCheckpoint(text string) (Checkpoint, error) {
 	return Checkpoint{lines[0], tlog.Tree{N: n, Hash: hash}, lines[3]}, nil
 }
 
-func FormatCheckpoint(c Checkpoint) string {
+func (c Checkpoint) String() string {
 	return fmt.Sprintf("%s\n%d\n%s\n%s",
-		c.Origin, c.N, base64.StdEncoding.EncodeToString(c.Hash[:]), c.Extension)
+		c.Origin,
+		c.N,
+		base64.StdEncoding.EncodeToString(c.Hash[:]),
+		c.Extension,
+	)
 }

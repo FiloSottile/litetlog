@@ -1,10 +1,10 @@
-package tlogx_test
+package torchwood_test
 
 import (
 	"reflect"
 	"testing"
 
-	"filippo.io/torchwood/internal/tlogx"
+	"filippo.io/torchwood"
 	"golang.org/x/mod/sumdb/tlog"
 )
 
@@ -24,7 +24,7 @@ func TestRightEdge(t *testing.T) {
 		}},
 	}
 	for _, test := range tests {
-		if got := tlogx.RightEdge(test.n); !reflect.DeepEqual(got, test.want) {
+		if got := torchwood.RightEdge(test.n); !reflect.DeepEqual(got, test.want) {
 			t.Errorf("RightEdge(%d) = %v; want %v", test.n, got, test.want)
 		}
 	}

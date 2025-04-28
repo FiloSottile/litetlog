@@ -3,7 +3,7 @@
 // license that can be found at
 // https://go.googlesource.com/go/+/refs/heads/master/LICENSE.
 
-package tlogx
+package torchwood
 
 import (
 	"crypto"
@@ -23,9 +23,9 @@ import (
 
 const algCosignatureV1 = 4
 
-// NewCosignatureV1Signer constructs a new CosignatureV1Signer that produces
-// timestamped cosignature/v1 signatures from an Ed25519 private key.
-func NewCosignatureV1Signer(name string, key crypto.Signer) (*CosignatureV1Signer, error) {
+// NewCosignatureSigner constructs a new [CosignatureSigner] from an Ed25519
+// private key.
+func NewCosignatureSigner(name string, key crypto.Signer) (*CosignatureSigner, error) {
 	if !isValidName(name) {
 		return nil, errors.New("invalid name")
 	}
@@ -34,10 +34,10 @@ func NewCosignatureV1Signer(name string, key crypto.Signer) (*CosignatureV1Signe
 		return nil, errors.New("key type is not Ed25519")
 	}
 
-	s := &CosignatureV1Signer{}
-	s.name = name
-	s.hash = keyHash(name, append([]byte{algCosignatureV1}, k...))
-	s.key = k
+	s := &CosignatureSigner{}
+	s.v.name = name
+	s.v.hash = keyHash(name, append([]byte{algCosignatureV1}, k...))
+	s.v.key = k
 	s.sign = func(msg []byte) ([]byte, error) {
 		t := uint64(time.Now().Unix())
 		m, err := formatCosignatureV1(t, msg)
@@ -55,7 +55,7 @@ func NewCosignatureV1Signer(name string, key crypto.Signer) (*CosignatureV1Signe
 		sig = append(sig, s...)
 		return sig, nil
 	}
-	s.verify = func(msg, sig []byte) bool {
+	s.v.verify = func(msg, sig []byte) bool {
 		if len(sig) != 8+ed25519.SignatureSize {
 			return false
 		}
@@ -93,27 +93,32 @@ func formatCosignatureV1(t uint64, msg []byte) ([]byte, error) {
 		t, c.Origin, c.N, base64.StdEncoding.EncodeToString(c.Hash[:]))), nil
 }
 
-type CosignatureV1Signer struct {
-	verifier
+// CosignatureSigner is a [note.Signer] that produces timestamped
+// cosignatures according to c2sp.org/tlog-cosignature.
+type CosignatureSigner struct {
+	v    CosignatureVerifier
 	sign func([]byte) ([]byte, error)
 }
 
-type verifier struct {
-	name   string
-	hash   uint32
-	verify func(msg, sig []byte) bool
-	key    ed25519.PublicKey
+func (s *CosignatureSigner) Name() string                    { return s.v.Name() }
+func (s *CosignatureSigner) KeyHash() uint32                 { return s.v.KeyHash() }
+func (s *CosignatureSigner) Sign(msg []byte) ([]byte, error) { return s.sign(msg) }
+func (s *CosignatureSigner) Verifier() *CosignatureVerifier  { return &s.v }
+
+var _ note.Signer = &CosignatureSigner{}
+
+// CosignatureVerifier is a [note.Verifier] that verifies cosignatures
+// according to c2sp.org/tlog-cosignature.
+type CosignatureVerifier struct {
+	verifier
+	key ed25519.PublicKey
 }
 
-var _ note.Signer = &CosignatureV1Signer{}
+var _ note.Verifier = &CosignatureVerifier{}
 
-func (v *verifier) Name() string                               { return v.name }
-func (v *verifier) KeyHash() uint32                            { return v.hash }
-func (v *verifier) Verify(msg, sig []byte) bool                { return v.verify(msg, sig) }
-func (s *CosignatureV1Signer) Sign(msg []byte) ([]byte, error) { return s.sign(msg) }
-func (s *CosignatureV1Signer) Verifier() note.Verifier         { return &s.verifier }
-
-func (v *verifier) VerifierKey() string {
+// String returns the vkey encoding of the verifier, according to
+// c2sp.org/signed-note.
+func (v *CosignatureVerifier) String() string {
 	return fmt.Sprintf("%s+%08x+%s", v.name, v.hash, base64.StdEncoding.EncodeToString(
 		append([]byte{algCosignatureV1}, v.key...)))
 }

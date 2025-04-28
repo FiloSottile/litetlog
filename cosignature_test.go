@@ -1,11 +1,11 @@
-package tlogx_test
+package torchwood_test
 
 import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"testing"
 
-	"filippo.io/torchwood/internal/tlogx"
+	"filippo.io/torchwood"
 	"golang.org/x/mod/sumdb/note"
 )
 
@@ -15,7 +15,7 @@ func TestSignerRoundtrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s, err := tlogx.NewCosignatureV1Signer("example.com", k)
+	s, err := torchwood.NewCosignatureSigner("example.com", k)
 	if err != nil {
 		t.Fatal(err)
 	}

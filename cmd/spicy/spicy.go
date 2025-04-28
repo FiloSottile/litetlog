@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"filippo.io/torchwood/internal/tlogx"
+	"filippo.io/torchwood"
 	"golang.org/x/mod/sumdb/note"
 	"golang.org/x/mod/sumdb/tlog"
 )
@@ -76,7 +76,7 @@ func main() {
 			if err != nil {
 				log.Fatalf("could not verify checkpoint for %q: %v", path, err)
 			}
-			c, err := tlogx.ParseCheckpoint(m.Text)
+			c, err := torchwood.ParseCheckpoint(m.Text)
 			if err != nil {
 				log.Fatalf("could not parse checkpoint for %q: %v", path, err)
 			}
@@ -113,9 +113,9 @@ func main() {
 			log.Fatalf("could not create signer: %v", err)
 		}
 		checkpoint, err := note.Sign(&note.Note{
-			Text: tlogx.FormatCheckpoint(tlogx.Checkpoint{
+			Text: torchwood.Checkpoint{
 				Origin: *initFlag,
-			}),
+			}.String(),
 		}, signer)
 		if err != nil {
 			log.Fatalf("could not sign checkpoint: %v", err)
@@ -151,7 +151,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("could not parse key: %v", err)
 	}
-	verifier, err := tlogx.NewVerifierFromSigner(strings.TrimSpace(string(skey)))
+	verifier, err := torchwood.NewVerifierFromSigner(strings.TrimSpace(string(skey)))
 	if err != nil {
 		log.Fatalf("could not create verifier: %v", err)
 	}
@@ -164,7 +164,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("could not verify latest checkpoint: %v", err)
 	}
-	c, err := tlogx.ParseCheckpoint(n.Text)
+	c, err := torchwood.ParseCheckpoint(n.Text)
 	if err != nil {
 		log.Fatalf("could not parse latest checkpoint: %v", err)
 	}
@@ -201,7 +201,7 @@ func main() {
 			log.Fatalf("edge file size mismatch: got %d, latest checkpoint is %d", n, c.N)
 		}
 	}
-	idx := tlogx.RightEdge(c.N)
+	idx := torchwood.RightEdge(c.N)
 	if len(idx) != len(lines[1:]) {
 		log.Fatalf("edge hash count mismatch: got %d, want %d", len(lines[1:]), len(idx))
 	}
@@ -247,15 +247,15 @@ func main() {
 		log.Fatalf("could not compute tree hash: %v", err)
 	}
 	newCheckpoint, err := note.Sign(&note.Note{
-		Text: tlogx.FormatCheckpoint(tlogx.Checkpoint{
+		Text: torchwood.Checkpoint{
 			Origin: c.Origin,
 			Tree:   tlog.Tree{N: N, Hash: th},
-		})}, signer)
+		}.String()}, signer)
 	if err != nil {
 		log.Fatalf("could not sign new checkpoint: %v", err)
 	}
 	newEdge := fmt.Sprintf("size %d\n", N)
-	for _, idx := range tlogx.RightEdge(N) {
+	for _, idx := range torchwood.RightEdge(N) {
 		newEdge += fmt.Sprintf("%s\n", hashes[idx])
 	}
 

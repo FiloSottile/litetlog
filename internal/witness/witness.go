@@ -14,13 +14,13 @@ import (
 
 	"crawshaw.io/sqlite"
 	"crawshaw.io/sqlite/sqlitex"
-	"filippo.io/torchwood/internal/tlogx"
+	"filippo.io/torchwood"
 	"golang.org/x/mod/sumdb/note"
 	"golang.org/x/mod/sumdb/tlog"
 )
 
 type Witness struct {
-	s   *tlogx.CosignatureV1Signer
+	s   *torchwood.CosignatureSigner
 	mux *http.ServeMux
 	log *slog.Logger
 
@@ -61,7 +61,7 @@ func NewWitness(dbPath, name string, key crypto.Signer, log *slog.Logger) (*Witn
 		return nil, fmt.Errorf("initializing database: %v", err)
 	}
 
-	s, err := tlogx.NewCosignatureV1Signer(name, key)
+	s, err := torchwood.NewCosignatureSigner(name, key)
 	if err != nil {
 		return nil, fmt.Errorf("preparing signer: %v", err)
 	}
@@ -87,7 +87,7 @@ func (w *Witness) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 }
 
 func (w *Witness) VerifierKey() string {
-	return w.s.VerifierKey()
+	return w.s.Verifier().String()
 }
 
 type conflictError struct {
@@ -181,7 +181,7 @@ func (w *Witness) processAddCheckpointRequest(body []byte) (cosig []byte, err er
 	if err != nil {
 		return nil, err
 	}
-	c, err := tlogx.ParseCheckpoint(n.Text)
+	c, err := torchwood.ParseCheckpoint(n.Text)
 	if err != nil {
 		return nil, err
 	}

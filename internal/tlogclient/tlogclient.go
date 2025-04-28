@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"filippo.io/torchwood/internal/tlogx"
+	"filippo.io/torchwood"
 	"golang.org/x/mod/sumdb/tlog"
 	"golang.org/x/sync/errgroup"
 )
@@ -262,7 +262,7 @@ func NewTileFetcher(base string) *TileFetcher {
 			Timeout:   10 * time.Second,
 		},
 		log:      slog.New(slogDiscardHandler{}),
-		tilePath: tlogx.TilePath,
+		tilePath: torchwood.TilePath,
 	}
 }
 
@@ -361,13 +361,13 @@ func (c *PermanentCache) ReadTiles(tiles []tlog.Tile) (data [][]byte, err error)
 		if t.H != tileHeight {
 			return nil, fmt.Errorf("unexpected tile height %d", t.H)
 		}
-		path := filepath.Join(c.dir, tlogx.TilePath(t))
+		path := filepath.Join(c.dir, torchwood.TilePath(t))
 		if d, err := os.ReadFile(path); errors.Is(err, os.ErrNotExist) {
 			missing = append(missing, t)
 		} else if err != nil {
 			return nil, err
 		} else {
-			c.log.Info("loaded tile from cache", "path", tlogx.TilePath(t), "size", len(d))
+			c.log.Info("loaded tile from cache", "path", torchwood.TilePath(t), "size", len(d))
 			data[i] = d
 		}
 	}
@@ -396,7 +396,7 @@ func (c *PermanentCache) SaveTiles(tiles []tlog.Tile, data [][]byte) {
 		if t.W != tileWidth {
 			continue // skip partial tiles
 		}
-		path := filepath.Join(c.dir, tlogx.TilePath(t))
+		path := filepath.Join(c.dir, torchwood.TilePath(t))
 		if _, err := os.Stat(path); err == nil {
 			continue
 		}
@@ -407,7 +407,7 @@ func (c *PermanentCache) SaveTiles(tiles []tlog.Tile, data [][]byte) {
 		if err := os.WriteFile(path, data[i], 0600); err != nil {
 			c.log.Error("failed to write file", "path", path, "error", err)
 		} else {
-			c.log.Info("saved tile to cache", "path", tlogx.TilePath(t), "size", len(data[i]))
+			c.log.Info("saved tile to cache", "path", torchwood.TilePath(t), "size", len(data[i]))
 		}
 	}
 	c.tr.SaveTiles(tiles, data)

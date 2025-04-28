@@ -1,4 +1,4 @@
-package tlogx
+package torchwood
 
 import (
 	"fmt"
