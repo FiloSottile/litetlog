@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"filippo.io/litetlog/internal/tlogx"
+	"filippo.io/torchwood/internal/tlogx"
 	"golang.org/x/mod/sumdb/note"
 	"golang.org/x/mod/sumdb/tlog"
 )

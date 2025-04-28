@@ -9,7 +9,7 @@ verifies the proof each time an InRelease file is being downloaded from the
 mirror.
 
 The proofs are generated with
-[`spicy`](https://github.com/FiloSottile/litetlog/blob/main/cmd/spicy/spicy.go)
+[`spicy`](https://github.com/FiloSottile/torchwood/blob/main/cmd/spicy/spicy.go)
 (also a prototype) by the `update-bucket.sh` script. It fetches the latest
 InRelease files every minute, and if any changes are detected it generates and
 uploads new proofs.

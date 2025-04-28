@@ -1,4 +1,4 @@
-module filippo.io/litetlog
+module filippo.io/torchwood
 
 go 1.23.0
 

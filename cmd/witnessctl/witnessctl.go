@@ -10,7 +10,7 @@ import (
 
 	"crawshaw.io/sqlite"
 	"crawshaw.io/sqlite/sqlitex"
-	"filippo.io/litetlog/internal/witness"
+	"filippo.io/torchwood/internal/witness"
 	"golang.org/x/mod/sumdb/note"
 	sigsum "sigsum.org/sigsum-go/pkg/crypto"
 	"sigsum.org/sigsum-go/pkg/merkle"

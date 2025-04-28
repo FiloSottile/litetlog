@@ -1,7 +1,6 @@
-# litetlog
+# Torchwood
 
-The litetlog repository is a collection of open-source tooling for transparency
-logs designed to be simple and lightweight.
+The Torchwood repository is a collection of open-source tooling for tlogs.
 
 ## litewitness
 
@@ -17,10 +16,10 @@ To install it, use `go install`.
 
 ```
 # from anywhere
-go install filippo.io/litetlog/cmd/{litewitness,witnessctl}@latest
+go install filippo.io/torchwood/cmd/{litewitness,witnessctl}@latest
 
 # from within a source tree
-go install filippo.io/litetlog/cmd/{litewitness,witnessctl}
+go install filippo.io/torchwood/cmd/{litewitness,witnessctl}
 ```
 
 litewitness has no config file. All configuration is done via command line flags
@@ -135,8 +134,8 @@ It might be desirable to integrate bastion functionality in an existing binary,
 for example because there is only one IP address and hence only one port 443 to
 listen on.
 
-In that case, you can use the `filippo.io/litetlog/bastion` package.
+In that case, you can use the `filippo.io/torchwood/bastion` package.
 
-See [pkg.go.dev](https://pkg.go.dev/filippo.io/litetlog/bastion) for the
+See [pkg.go.dev](https://pkg.go.dev/filippo.io/torchwood/bastion) for the
 documentation and in particular the [package
-example](https://pkg.go.dev/filippo.io/litetlog/bastion#example-package).
+example](https://pkg.go.dev/filippo.io/torchwood/bastion#example-package).

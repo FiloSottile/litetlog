@@ -26,8 +26,8 @@ import (
 	"syscall"
 	"time"
 
-	"filippo.io/litetlog/bastion"
-	"filippo.io/litetlog/internal/slogconsole"
+	"filippo.io/torchwood/bastion"
+	"filippo.io/torchwood/internal/slogconsole"
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/net/http2"

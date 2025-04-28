@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"filippo.io/litetlog/internal/tlogclient"
+	"filippo.io/torchwood/internal/tlogclient"
 	"golang.org/x/mod/sumdb/tlog"
 )
 

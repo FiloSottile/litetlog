@@ -1,3 +1,7 @@
+## v0.5.0
+
+Renamed repository to Torchwood.
+
 ## v0.4.3
 
 ### litewitness

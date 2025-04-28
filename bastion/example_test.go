@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"filippo.io/litetlog/bastion"
+	"filippo.io/torchwood/bastion"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/net/http2"
 )

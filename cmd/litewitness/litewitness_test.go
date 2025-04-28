@@ -34,8 +34,8 @@ func TestScript(t *testing.T) {
 			if testing.CoverMode() != "" {
 				cmd.Args = append(cmd.Args, "-cover")
 			}
-			cmd.Args = append(cmd.Args, "filippo.io/litetlog/cmd/witnessctl")
-			cmd.Args = append(cmd.Args, "filippo.io/litetlog/cmd/litebastion")
+			cmd.Args = append(cmd.Args, "filippo.io/torchwood/cmd/witnessctl")
+			cmd.Args = append(cmd.Args, "filippo.io/torchwood/cmd/litebastion")
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			return cmd.Run()

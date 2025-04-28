@@ -31,8 +31,8 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/net/http2"
 
-	"filippo.io/litetlog/internal/slogconsole"
-	"filippo.io/litetlog/internal/witness"
+	"filippo.io/torchwood/internal/slogconsole"
+	"filippo.io/torchwood/internal/witness"
 )
 
 var nameFlag = flag.String("name", "", "URL-like (e.g. example.com/foo) name of this witness")

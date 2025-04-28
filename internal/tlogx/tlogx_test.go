@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"filippo.io/litetlog/internal/tlogx"
+	"filippo.io/torchwood/internal/tlogx"
 	"golang.org/x/mod/sumdb/tlog"
 )
 
