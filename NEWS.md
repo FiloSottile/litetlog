@@ -1,5 +1,11 @@
 ## v0.5.0
 
+### torchwood
+
+- Added tlog client, tiles fetcher, and permanent cache.
+
+## v0.5.0
+
 Renamed repository to Torchwood.
 
 ### torchwood

@@ -11,14 +11,15 @@ The Torchwood repository is a collection of open-source tooling for tlogs.
     
     It implements [c2sp.org/https-bastion][].
 
-  - [filippo.io/torchwood][] implements various [c2sp.org/signed-note][],
-    [c2sp.org/tlog-cosignature][], [c2sp.org/tlog-checkpoint][], and
-    [c2sp.org/tlog-tiles][] functions, including extensions to the
-    [golang.org/x/mod/sumdb/tlog][] and [golang.org/x/mod/sumdb/note][]
-    packages.
+  - [filippo.io/torchwood][] implements a [tlog client][] and various
+    [c2sp.org/signed-note][], [c2sp.org/tlog-cosignature][],
+    [c2sp.org/tlog-checkpoint][], and [c2sp.org/tlog-tiles][] functions,
+    including extensions to the [golang.org/x/mod/sumdb/tlog][] and
+    [golang.org/x/mod/sumdb/note][] packages.
 
 [filippo.io/torchwood/bastion]: https://pkg.go.dev/filippo.io/torchwood/bastion
 [filippo.io/torchwood]: https://pkg.go.dev/filippo.io/torchwood
+[tlog client]: https://pkg.go.dev/filippo.io/torchwood#Client
 [litebastion]: /cmd/litebastion/README.md
 [litewitness]: /cmd/litewitness/README.md
 [c2sp.org/tlog-witness]: https://c2sp.org/tlog-witness

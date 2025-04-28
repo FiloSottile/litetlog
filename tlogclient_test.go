@@ -1,4 +1,4 @@
-package tlogclient_test
+package torchwood_test
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"filippo.io/torchwood/internal/tlogclient"
+	"filippo.io/torchwood"
 	"golang.org/x/mod/sumdb/tlog"
 )
 
@@ -36,11 +36,16 @@ InZSsRXdXKTMF3W5wEcd9T6ro5zyOiRMGQsEPSTco6U=
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("Start%d", tt.start), func(t *testing.T) {
 			t.Run("NoCache", func(t *testing.T) {
-				fetcher := tlogclient.NewTileFetcher("https://sum.golang.org/")
-				fetcher.SetTilePath(func(t tlog.Tile) string { return t.Path() })
-				fetcher.SetLogger(slog.New(handler))
-				client := tlogclient.NewClient(fetcher)
-				client.SetCutEntry(tlogclient.CutSumDBEntry)
+				fetcher, err := torchwood.NewTileFetcher("https://sum.golang.org/",
+					torchwood.WithTilePath(func(t tlog.Tile) string { return t.Path() }),
+					torchwood.WithTileFetcherLogger(slog.New(handler)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				client, err := torchwood.NewClient(fetcher, torchwood.WithSumDBEntries())
+				if err != nil {
+					t.Fatal(err)
+				}
 
 				count := 0
 				for range client.Entries(tree, tt.start) {
@@ -49,7 +54,7 @@ InZSsRXdXKTMF3W5wEcd9T6ro5zyOiRMGQsEPSTco6U=
 						break
 					}
 				}
-				if err := client.Error(); err != nil {
+				if err := client.Err(); err != nil {
 					t.Fatal(err)
 				}
 				if count != tt.expect {
@@ -58,16 +63,21 @@ InZSsRXdXKTMF3W5wEcd9T6ro5zyOiRMGQsEPSTco6U=
 			})
 
 			t.Run("DirCache", func(t *testing.T) {
-				fetcher := tlogclient.NewTileFetcher("https://sum.golang.org/")
-				fetcher.SetTilePath(func(t tlog.Tile) string { return t.Path() })
-				fetcher.SetLogger(slog.New(handler))
-				dirCache, err := tlogclient.NewPermanentCache(fetcher, t.TempDir())
+				fetcher, err := torchwood.NewTileFetcher("https://sum.golang.org/",
+					torchwood.WithTilePath(func(t tlog.Tile) string { return t.Path() }),
+					torchwood.WithTileFetcherLogger(slog.New(handler)))
 				if err != nil {
 					t.Fatal(err)
 				}
-				dirCache.SetLogger(slog.New(handler))
-				client := tlogclient.NewClient(dirCache)
-				client.SetCutEntry(tlogclient.CutSumDBEntry)
+				dirCache, err := torchwood.NewPermanentCache(fetcher, t.TempDir(),
+					torchwood.WithPermanentCacheLogger(slog.New(handler)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				client, err := torchwood.NewClient(dirCache, torchwood.WithSumDBEntries())
+				if err != nil {
+					t.Fatal(err)
+				}
 
 				count := 0
 				for range client.Entries(tree, tt.start) {
@@ -76,7 +86,7 @@ InZSsRXdXKTMF3W5wEcd9T6ro5zyOiRMGQsEPSTco6U=
 						break
 					}
 				}
-				if err := client.Error(); err != nil {
+				if err := client.Err(); err != nil {
 					t.Fatal(err)
 				}
 				if count != tt.expect {
@@ -84,8 +94,10 @@ InZSsRXdXKTMF3W5wEcd9T6ro5zyOiRMGQsEPSTco6U=
 				}
 
 				// Again, from cache.
-				client = tlogclient.NewClient(dirCache)
-				client.SetCutEntry(tlogclient.CutSumDBEntry)
+				client, err = torchwood.NewClient(dirCache, torchwood.WithSumDBEntries())
+				if err != nil {
+					t.Fatal(err)
+				}
 				count = 0
 				for range client.Entries(tree, tt.start) {
 					count++
@@ -93,7 +105,7 @@ InZSsRXdXKTMF3W5wEcd9T6ro5zyOiRMGQsEPSTco6U=
 						break
 					}
 				}
-				if err := client.Error(); err != nil {
+				if err := client.Err(); err != nil {
 					t.Fatal(err)
 				}
 				if count != tt.expect {

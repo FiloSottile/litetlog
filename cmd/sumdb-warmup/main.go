@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"filippo.io/torchwood/internal/tlogclient"
+	"filippo.io/torchwood"
 	"github.com/cheggaaa/pb/v3"
 	"golang.org/x/mod/sumdb/tlog"
 )
@@ -24,23 +24,28 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	cacheDir = filepath.Join(cacheDir, "tlogclient-warmup")
+	cacheDir = filepath.Join(cacheDir, "sumdb-warmup")
 
-	fetcher := tlogclient.NewTileFetcher("https://sum.golang.org/")
-	fetcher.SetTilePath(func(t tlog.Tile) string { return t.Path() })
-	dirCache, err := tlogclient.NewPermanentCache(fetcher, cacheDir)
+	fetcher, err := torchwood.NewTileFetcher("https://sum.golang.org/",
+		torchwood.WithTilePath(func(t tlog.Tile) string { return t.Path() }))
 	if err != nil {
 		panic(err)
 	}
-	client := tlogclient.NewClient(dirCache)
-	client.SetCutEntry(tlogclient.CutSumDBEntry)
+	dirCache, err := torchwood.NewPermanentCache(fetcher, cacheDir)
+	if err != nil {
+		panic(err)
+	}
+	client, err := torchwood.NewClient(dirCache, torchwood.WithSumDBEntries())
+	if err != nil {
+		panic(err)
+	}
 
 	bar := pb.Start64(tree.N)
 	for range client.Entries(tree, 0) {
 		bar.Increment()
 	}
 	bar.Finish()
-	if err := client.Error(); err != nil {
+	if err := client.Err(); err != nil {
 		panic(err)
 	}
 }

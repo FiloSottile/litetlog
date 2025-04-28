@@ -3,7 +3,7 @@
 // license that can be found at
 // https://go.googlesource.com/go/+/refs/heads/master/LICENSE.
 
-// Package torchwood implements various c2sp.org/signed-note,
+// Package torchwood implements a tlog client and various c2sp.org/signed-note,
 // c2sp.org/tlog-cosignature, c2sp.org/tlog-checkpoint, and c2sp.org/tlog-tiles
 // functions, including extensions to the [golang.org/x/mod/sumdb/tlog] and
 // [golang.org/x/mod/sumdb/note] packages.
