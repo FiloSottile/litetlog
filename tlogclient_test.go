@@ -1,6 +1,7 @@
 package torchwood_test
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -48,7 +49,7 @@ InZSsRXdXKTMF3W5wEcd9T6ro5zyOiRMGQsEPSTco6U=
 				}
 
 				count := 0
-				for range client.Entries(tree, tt.start) {
+				for range client.Entries(context.Background(), tree, tt.start) {
 					count++
 					if count >= 1000 {
 						break
@@ -80,7 +81,7 @@ InZSsRXdXKTMF3W5wEcd9T6ro5zyOiRMGQsEPSTco6U=
 				}
 
 				count := 0
-				for range client.Entries(tree, tt.start) {
+				for range client.Entries(context.Background(), tree, tt.start) {
 					count++
 					if count >= 1000 {
 						break
@@ -99,7 +100,7 @@ InZSsRXdXKTMF3W5wEcd9T6ro5zyOiRMGQsEPSTco6U=
 					t.Fatal(err)
 				}
 				count = 0
-				for range client.Entries(tree, tt.start) {
+				for range client.Entries(context.Background(), tree, tt.start) {
 					count++
 					if count >= 1000 {
 						break

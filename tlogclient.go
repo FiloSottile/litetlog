@@ -21,18 +21,15 @@ import (
 // Client is a tlog client that fetches and authenticates tiles, and exposes log
 // entries as a Go iterator.
 type Client struct {
-	tr  tlog.TileReader
+	tr  TileReaderWithContext
 	cut func([]byte) ([]byte, tlog.Hash, []byte, error)
 	err error
 }
 
 // NewClient creates a new [Client] that fetches tiles using the given
-// [tlog.TileReader]. The TileReader would typically be a [TileFetcher],
+// [TileReaderWithContext]. The TileReaderWithContext would typically be a [TileFetcher],
 // optionally wrapped in a [PermanentCache] to cache tiles on disk.
-func NewClient(tr tlog.TileReader, opts ...ClientOption) (*Client, error) {
-	if tr.Height() != TileHeight {
-		return nil, fmt.Errorf("only tile height %d is supported", TileHeight)
-	}
+func NewClient(tr TileReaderWithContext, opts ...ClientOption) (*Client, error) {
 	tr = &edgeMemoryCache{tr: tr, t: make(map[int][2]tileWithData)}
 	c := &Client{tr: tr}
 	for _, opt := range opts {
@@ -94,7 +91,7 @@ func (c *Client) Err() error {
 // checkpoint and use that as the tree argument.
 //
 // Callers must check [Client.Err] after the iteration breaks.
-func (c *Client) Entries(tree tlog.Tree, start int64) iter.Seq2[int64, []byte] {
+func (c *Client) Entries(ctx context.Context, tree tlog.Tree, start int64) iter.Seq2[int64, []byte] {
 	c.err = nil
 	return func(yield func(int64, []byte) bool) {
 		for {
@@ -125,7 +122,7 @@ func (c *Client) Entries(tree tlog.Tree, start int64) iter.Seq2[int64, []byte] {
 			if len(tiles) == 0 {
 				return
 			}
-			tdata, err := c.tr.ReadTiles(tiles)
+			tdata, err := c.tr.ReadTiles(ctx, tiles)
 			if err != nil {
 				c.err = err
 				return
@@ -138,7 +135,7 @@ func (c *Client) Entries(tree tlog.Tree, start int64) iter.Seq2[int64, []byte] {
 					indexes = append(indexes, tlog.StoredHashIndex(0, t.N*TileWidth+int64(i)))
 				}
 			}
-			hashes, err := tlog.TileHashReader(tree, c.tr).ReadHashes(indexes)
+			hashes, err := TileHashReaderWithContext(ctx, tree, c.tr).ReadHashes(indexes)
 			if err != nil {
 				c.err = err
 				return
@@ -172,6 +169,10 @@ func (c *Client) Entries(tree tlog.Tree, start int64) iter.Seq2[int64, []byte] {
 					if !yield(i, entry) {
 						return
 					}
+					if err := ctx.Err(); err != nil {
+						c.err = err
+						return
+					}
 				}
 				if len(data) != 0 {
 					c.err = fmt.Errorf("unexpected leftover data in tile %d", t.N)
@@ -194,19 +195,15 @@ type tileWithData struct {
 	data []byte
 }
 
-// edgeMemoryCache is a [tlog.TileReader] that caches two edges in the tree: the
+// edgeMemoryCache is a [TileReaderWithContext] that caches two edges in the tree: the
 // rightmost one that's used to compute the tree hash, and the one that moves
 // through the tree as we progress through entries.
 type edgeMemoryCache struct {
-	tr tlog.TileReader
+	tr TileReaderWithContext
 	t  map[int][2]tileWithData
 }
 
-func (c *edgeMemoryCache) Height() int {
-	return c.tr.Height()
-}
-
-func (c *edgeMemoryCache) ReadTiles(tiles []tlog.Tile) (data [][]byte, err error) {
+func (c *edgeMemoryCache) ReadTiles(ctx context.Context, tiles []tlog.Tile) (data [][]byte, err error) {
 	data = make([][]byte, len(tiles))
 	missing := make([]tlog.Tile, 0, len(tiles))
 	for i, t := range tiles {
@@ -221,7 +218,7 @@ func (c *edgeMemoryCache) ReadTiles(tiles []tlog.Tile) (data [][]byte, err error
 	if len(missing) == 0 {
 		return data, nil
 	}
-	missingData, err := c.tr.ReadTiles(missing)
+	missingData, err := c.tr.ReadTiles(ctx, missing)
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +273,7 @@ func tileLess(a, b tlog.Tile) bool {
 	return a.N < b.N || (a.N == b.N && a.W < b.W)
 }
 
-// TileFetcher is a [tlog.TileReader] that fetches tiles from a remote server.
+// TileFetcher is a [TileReaderWithContext] that fetches tiles from a remote server.
 type TileFetcher struct {
 	base     string
 	hc       *http.Client
@@ -354,15 +351,10 @@ func WithTilePath(tilePath func(tlog.Tile) string) TileFetcherOption {
 	}
 }
 
-// Height implements [tlog.TileReader].
-func (f *TileFetcher) Height() int {
-	return TileHeight
-}
-
-// ReadTiles implements [tlog.TileReader].
-func (f *TileFetcher) ReadTiles(tiles []tlog.Tile) (data [][]byte, err error) {
+// ReadTiles implements [TileReaderWithContext].
+func (f *TileFetcher) ReadTiles(ctx context.Context, tiles []tlog.Tile) (data [][]byte, err error) {
 	data = make([][]byte, len(tiles))
-	errGroup, ctx := errgroup.WithContext(context.Background())
+	errGroup, ctx := errgroup.WithContext(ctx)
 	if f.limit > 0 {
 		errGroup.SetLimit(f.limit)
 	}
@@ -372,7 +364,11 @@ func (f *TileFetcher) ReadTiles(tiles []tlog.Tile) (data [][]byte, err error) {
 		}
 		errGroup.Go(func() error {
 			path := f.tilePath(t)
-			resp, err := f.hc.Get(f.base + path)
+			req, err := http.NewRequestWithContext(ctx, "GET", f.base+path, nil)
+			if err != nil {
+				return fmt.Errorf("%s: %w", path, err)
+			}
+			resp, err := f.hc.Do(req)
 			if err != nil {
 				return fmt.Errorf("%s: %w", path, err)
 			}
@@ -391,7 +387,7 @@ func (f *TileFetcher) ReadTiles(tiles []tlog.Tile) (data [][]byte, err error) {
 	return data, errGroup.Wait()
 }
 
-// SaveTiles implements [tlog.TileReader]. It does nothing.
+// SaveTiles implements [TileReaderWithContext]. It does nothing.
 func (f *TileFetcher) SaveTiles(tiles []tlog.Tile, data [][]byte) {}
 
 type slogDiscardHandler struct{}
@@ -401,24 +397,21 @@ func (slogDiscardHandler) Handle(context.Context, slog.Record) error { return ni
 func (slogDiscardHandler) WithAttrs(attrs []slog.Attr) slog.Handler  { return slogDiscardHandler{} }
 func (slogDiscardHandler) WithGroup(name string) slog.Handler        { return slogDiscardHandler{} }
 
-// PermanentCache is a [tlog.TileReader] that caches verified, non-partial tiles
+// PermanentCache is a [TileReaderWithContext] that caches verified, non-partial tiles
 // in a filesystem directory, following the same structure as c2sp.org/tlog-tiles
-// (even if the wrapped TileReader fetches tiles following a different scheme,
+// (even if the wrapped TileReaderWithContext fetches tiles following a different scheme,
 // such as c2sp.org/static-ct-api or go.dev/design/25530-sumdb).
 type PermanentCache struct {
-	tr  tlog.TileReader
+	tr  TileReaderWithContext
 	dir string
 	log *slog.Logger
 }
 
 // NewPermanentCache creates a new [PermanentCache] that caches tiles in the
 // given directory. The directory must exist.
-func NewPermanentCache(tr tlog.TileReader, dir string, opts ...PermanentCacheOption) (*PermanentCache, error) {
+func NewPermanentCache(tr TileReaderWithContext, dir string, opts ...PermanentCacheOption) (*PermanentCache, error) {
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 		return nil, fmt.Errorf("cache directory %q does not exist or is not a directory: %w", dir, err)
-	}
-	if tr.Height() != TileHeight {
-		return nil, fmt.Errorf("only tile height 8 is supported")
 	}
 	c := &PermanentCache{tr: tr, dir: dir}
 	for _, opt := range opts {
@@ -441,13 +434,8 @@ func WithPermanentCacheLogger(log *slog.Logger) PermanentCacheOption {
 	}
 }
 
-// Height implements [tlog.TileReader].
-func (c *PermanentCache) Height() int {
-	return TileHeight
-}
-
-// ReadTiles implements [tlog.TileReader].
-func (c *PermanentCache) ReadTiles(tiles []tlog.Tile) (data [][]byte, err error) {
+// ReadTiles implements [TileReaderWithContext].
+func (c *PermanentCache) ReadTiles(ctx context.Context, tiles []tlog.Tile) (data [][]byte, err error) {
 	data = make([][]byte, len(tiles))
 	missing := make([]tlog.Tile, 0, len(tiles))
 	for i, t := range tiles {
@@ -467,7 +455,7 @@ func (c *PermanentCache) ReadTiles(tiles []tlog.Tile) (data [][]byte, err error)
 	if len(missing) == 0 {
 		return data, nil
 	}
-	missingData, err := c.tr.ReadTiles(missing)
+	missingData, err := c.tr.ReadTiles(ctx, missing)
 	if err != nil {
 		return nil, err
 	}
@@ -480,7 +468,7 @@ func (c *PermanentCache) ReadTiles(tiles []tlog.Tile) (data [][]byte, err error)
 	return data, nil
 }
 
-// SaveTiles implements [tlog.TileReader].
+// SaveTiles implements [TileReaderWithContext].
 func (c *PermanentCache) SaveTiles(tiles []tlog.Tile, data [][]byte) {
 	for i, t := range tiles {
 		if t.H != TileHeight {

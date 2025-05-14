@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -41,7 +42,7 @@ func main() {
 	}
 
 	bar := pb.Start64(tree.N)
-	for range client.Entries(tree, 0) {
+	for range client.Entries(context.Background(), tree, 0) {
 		bar.Increment()
 	}
 	bar.Finish()
