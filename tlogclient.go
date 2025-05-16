@@ -21,9 +21,10 @@ import (
 // Client is a tlog client that fetches and authenticates tiles, and exposes log
 // entries as a Go iterator.
 type Client struct {
-	tr  TileReaderWithContext
-	cut func([]byte) ([]byte, tlog.Hash, []byte, error)
-	err error
+	tr      TileReaderWithContext
+	cut     func([]byte) ([]byte, tlog.Hash, []byte, error)
+	timeout time.Duration
+	err     error
 }
 
 // NewClient creates a new [Client] that fetches tiles using the given
@@ -39,11 +40,22 @@ func NewClient(tr TileReaderWithContext, opts ...ClientOption) (*Client, error) 
 		// TODO: default to the tlog-tile entries format.
 		return nil, fmt.Errorf("cut function not set")
 	}
+	if c.timeout == 0 {
+		c.timeout = 5 * time.Minute
+	}
 	return c, nil
 }
 
 // ClientOption is a function that configures a [Client].
 type ClientOption func(*Client)
+
+// WithTimeout configures the maximum duration the [Client.Entries] loop will
+// block waiting for each next extry. The default is 5 minutes.
+func WithTimeout(d time.Duration) ClientOption {
+	return func(c *Client) {
+		c.timeout = d
+	}
+}
 
 // WithCutEntry configures the function to split the next entry from a tile.
 //
@@ -93,8 +105,16 @@ func (c *Client) Err() error {
 // Callers must check [Client.Err] after the iteration breaks.
 func (c *Client) Entries(ctx context.Context, tree tlog.Tree, start int64) iter.Seq2[int64, []byte] {
 	c.err = nil
+	mainCtx := ctx
 	return func(yield func(int64, []byte) bool) {
+		ctx, cancel := context.WithTimeout(mainCtx, c.timeout)
+		defer func() { cancel() }()
 		for {
+			if err := ctx.Err(); err != nil {
+				c.err = err
+				return
+			}
+
 			base := start / TileWidth * TileWidth
 			// In regular operations, don't actually fetch the trailing partial
 			// tile, to avoid duplicating that traffic in steady state. The
@@ -146,6 +166,11 @@ func (c *Client) Entries(ctx context.Context, tree tlog.Tree, start int64) iter.
 				tileEnd := tileStart + int64(t.W)
 				data := tdata[ti]
 				for i := tileStart; i < tileEnd; i++ {
+					if err := ctx.Err(); err != nil {
+						c.err = err
+						return
+					}
+
 					if len(data) == 0 {
 						c.err = fmt.Errorf("unexpected end of tile data for tile %d", t.N)
 						return
@@ -169,10 +194,9 @@ func (c *Client) Entries(ctx context.Context, tree tlog.Tree, start int64) iter.
 					if !yield(i, entry) {
 						return
 					}
-					if err := ctx.Err(); err != nil {
-						c.err = err
-						return
-					}
+					cancel()
+					ctx, cancel = context.WithTimeout(mainCtx, c.timeout)
+					_ = cancel // https://go.dev/issue/25720
 				}
 				if len(data) != 0 {
 					c.err = fmt.Errorf("unexpected leftover data in tile %d", t.N)
