@@ -26,6 +26,9 @@ func main() {
 		panic(err)
 	}
 	cacheDir = filepath.Join(cacheDir, "sumdb-warmup")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		panic(err)
+	}
 
 	fetcher, err := torchwood.NewTileFetcher("https://sum.golang.org/",
 		torchwood.WithTilePath(func(t tlog.Tile) string { return t.Path() }))
