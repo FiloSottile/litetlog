@@ -301,6 +301,7 @@ func tileLess(a, b tlog.Tile) bool {
 type TileFetcher struct {
 	base     string
 	hc       *http.Client
+	ua       string
 	log      *slog.Logger
 	limit    int
 	tilePath func(tlog.Tile) string
@@ -328,6 +329,9 @@ func NewTileFetcher(base string, opts ...TileFetcherOption) (*TileFetcher, error
 			Timeout:   10 * time.Second,
 		}
 	}
+	if tf.ua == "" {
+		tf.ua = "filippo.io/torchwood.Client"
+	}
 	if tf.log == nil {
 		tf.log = slog.New(slogDiscardHandler{})
 	}
@@ -353,6 +357,14 @@ func WithTileFetcherLogger(log *slog.Logger) TileFetcherOption {
 func WithHTTPClient(hc *http.Client) TileFetcherOption {
 	return func(f *TileFetcher) {
 		f.hc = hc
+	}
+}
+
+// WithUserAgent configures the User-Agent header used by the TileFetcher.
+// By default, the User-Agent is "filippo.io/torchwood.Client".
+func WithUserAgent(ua string) TileFetcherOption {
+	return func(f *TileFetcher) {
+		f.ua = ua
 	}
 }
 
@@ -392,6 +404,7 @@ func (f *TileFetcher) ReadTiles(ctx context.Context, tiles []tlog.Tile) (data []
 			if err != nil {
 				return fmt.Errorf("%s: %w", path, err)
 			}
+			req.Header.Set("User-Agent", f.ua)
 			resp, err := f.hc.Do(req)
 			if err != nil {
 				return fmt.Errorf("%s: %w", path, err)
