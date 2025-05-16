@@ -8,9 +8,11 @@ import (
 	"io"
 	"iter"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -387,7 +389,8 @@ func WithTilePath(tilePath func(tlog.Tile) string) TileFetcherOption {
 	}
 }
 
-// ReadTiles implements [TileReaderWithContext].
+// ReadTiles implements [TileReaderWithContext]. It retries 429 and 5xx
+// responses, and network errors.
 func (f *TileFetcher) ReadTiles(ctx context.Context, tiles []tlog.Tile) (data [][]byte, err error) {
 	data = make([][]byte, len(tiles))
 	errGroup, ctx := errgroup.WithContext(ctx)
@@ -402,26 +405,71 @@ func (f *TileFetcher) ReadTiles(ctx context.Context, tiles []tlog.Tile) (data []
 			path := f.tilePath(t)
 			req, err := http.NewRequestWithContext(ctx, "GET", f.base+path, nil)
 			if err != nil {
-				return fmt.Errorf("%s: %w", path, err)
+				return fmt.Errorf("%s: failed to create request: %w", path, err)
 			}
-			req.Header.Set("User-Agent", f.ua)
-			resp, err := f.hc.Do(req)
-			if err != nil {
-				return fmt.Errorf("%s: %w", path, err)
+			var errs error
+			var retryAfter time.Time
+			for j := range 5 {
+				if j > 0 {
+					// Wait 1s, 5s, 25s, or 125s before retrying.
+					pause := time.Duration(math.Pow(5, float64(j-1))) * time.Second
+					if !retryAfter.IsZero() {
+						pause = time.Until(retryAfter)
+						retryAfter = time.Time{}
+					}
+					f.log.InfoContext(ctx, "retrying tile fetch", "path", path,
+						"pause", pause, "errs", errs, "retry", j)
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case <-time.After(pause):
+					}
+				}
+				req.Header.Set("User-Agent", f.ua)
+				resp, err := f.hc.Do(req)
+				if err != nil {
+					errs = errors.Join(errs, err)
+					continue
+				}
+				defer resp.Body.Close()
+				switch {
+				case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500:
+					retryAfter = parseRetryAfter(resp.Header.Get("Retry-After"))
+					errs = errors.Join(errs, fmt.Errorf("unexpected status code %d", resp.StatusCode))
+					continue
+				case resp.StatusCode != http.StatusOK:
+					return fmt.Errorf("%s: unexpected status code %d", path, resp.StatusCode)
+				}
+				data[i], err = io.ReadAll(resp.Body)
+				if err != nil {
+					errs = errors.Join(errs, err)
+					continue
+				}
+				f.log.InfoContext(ctx, "fetched tile", "path", path, "size", len(data[i]))
+				return nil
 			}
-			defer resp.Body.Close()
-			if resp.StatusCode != http.StatusOK {
-				return fmt.Errorf("%s: unexpected status code %d", path, resp.StatusCode)
-			}
-			data[i], err = io.ReadAll(resp.Body)
-			if err != nil {
-				return fmt.Errorf("%s: %w", path, err)
-			}
-			f.log.InfoContext(ctx, "fetched tile", "path", path, "size", len(data[i]))
-			return nil
+			return fmt.Errorf("%s: %w", path, errs)
 		})
 	}
 	return data, errGroup.Wait()
+}
+
+// parseRetryAfter parses the Retry-After header value. It returns the time
+// to wait before retrying the request. If the header is not present or
+// invalid, it returns zero.
+func parseRetryAfter(header string) time.Time {
+	if header == "" {
+		return time.Time{}
+	}
+	n, err := strconv.Atoi(header)
+	if err == nil {
+		return time.Now().Add(time.Duration(n) * time.Second)
+	}
+	t, err := http.ParseTime(header)
+	if err == nil {
+		return t
+	}
+	return time.Time{}
 }
 
 // SaveTiles implements [TileReaderWithContext]. It does nothing.
