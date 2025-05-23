@@ -483,13 +483,12 @@ func (slogDiscardHandler) WithAttrs(attrs []slog.Attr) slog.Handler  { return sl
 func (slogDiscardHandler) WithGroup(name string) slog.Handler        { return slogDiscardHandler{} }
 
 // PermanentCache is a [TileReaderWithContext] that caches verified, non-partial tiles
-// in a filesystem directory, following the same structure as c2sp.org/tlog-tiles
-// (even if the wrapped TileReaderWithContext fetches tiles following a different scheme,
-// such as c2sp.org/static-ct-api or go.dev/design/25530-sumdb).
+// in a filesystem directory.
 type PermanentCache struct {
-	tr  TileReaderWithContext
-	dir string
-	log *slog.Logger
+	tr       TileReaderWithContext
+	dir      string
+	log      *slog.Logger
+	tilePath func(tlog.Tile) string
 }
 
 // NewPermanentCache creates a new [PermanentCache] that caches tiles in the
@@ -505,6 +504,9 @@ func NewPermanentCache(tr TileReaderWithContext, dir string, opts ...PermanentCa
 	if c.log == nil {
 		c.log = slog.New(slogDiscardHandler{})
 	}
+	if c.tilePath == nil {
+		c.tilePath = TilePath
+	}
 	return c, nil
 }
 
@@ -519,6 +521,17 @@ func WithPermanentCacheLogger(log *slog.Logger) PermanentCacheOption {
 	}
 }
 
+// WithPermanentCacheTilePath configures the function used to generate the tile
+// path from a [tlog.Tile]. By default, PermanentCache uses the
+// c2sp.org/tlog-tiles scheme implemented by [TilePath]. For the
+// go.dev/design/25530-sumdb scheme, use [tlog.Tile.Path]. For the
+// c2sp.org/static-ct-api scheme, use [filippo.io/sunlight.TilePath].
+func WithPermanentCacheTilePath(tilePath func(tlog.Tile) string) PermanentCacheOption {
+	return func(f *PermanentCache) {
+		f.tilePath = tilePath
+	}
+}
+
 // ReadTiles implements [TileReaderWithContext].
 func (c *PermanentCache) ReadTiles(ctx context.Context, tiles []tlog.Tile) (data [][]byte, err error) {
 	data = make([][]byte, len(tiles))
@@ -527,13 +540,13 @@ func (c *PermanentCache) ReadTiles(ctx context.Context, tiles []tlog.Tile) (data
 		if t.H != TileHeight {
 			return nil, fmt.Errorf("unexpected tile height %d", t.H)
 		}
-		path := filepath.Join(c.dir, TilePath(t))
+		path := filepath.Join(c.dir, c.tilePath(t))
 		if d, err := os.ReadFile(path); errors.Is(err, os.ErrNotExist) {
 			missing = append(missing, t)
 		} else if err != nil {
 			return nil, err
 		} else {
-			c.log.Info("loaded tile from cache", "path", TilePath(t), "size", len(d))
+			c.log.Info("loaded tile from cache", "path", c.tilePath(t), "size", len(d))
 			data[i] = d
 		}
 	}
@@ -563,7 +576,7 @@ func (c *PermanentCache) SaveTiles(tiles []tlog.Tile, data [][]byte) {
 		if t.W != TileWidth {
 			continue // skip partial tiles
 		}
-		path := filepath.Join(c.dir, TilePath(t))
+		path := filepath.Join(c.dir, c.tilePath(t))
 		if _, err := os.Stat(path); err == nil {
 			continue
 		}
@@ -574,7 +587,7 @@ func (c *PermanentCache) SaveTiles(tiles []tlog.Tile, data [][]byte) {
 		if err := os.WriteFile(path, data[i], 0600); err != nil {
 			c.log.Error("failed to write file", "path", path, "error", err)
 		} else {
-			c.log.Info("saved tile to cache", "path", TilePath(t), "size", len(data[i]))
+			c.log.Info("saved tile to cache", "path", c.tilePath(t), "size", len(data[i]))
 		}
 	}
 	c.tr.SaveTiles(tiles, data)

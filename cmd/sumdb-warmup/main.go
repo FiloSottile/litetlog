@@ -31,11 +31,12 @@ func main() {
 	}
 
 	fetcher, err := torchwood.NewTileFetcher("https://sum.golang.org/",
-		torchwood.WithTilePath(func(t tlog.Tile) string { return t.Path() }))
+		torchwood.WithTilePath(tlog.Tile.Path))
 	if err != nil {
 		panic(err)
 	}
-	dirCache, err := torchwood.NewPermanentCache(fetcher, cacheDir)
+	dirCache, err := torchwood.NewPermanentCache(fetcher, cacheDir,
+		torchwood.WithPermanentCacheTilePath(tlog.Tile.Path))
 	if err != nil {
 		panic(err)
 	}

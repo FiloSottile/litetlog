@@ -38,7 +38,7 @@ InZSsRXdXKTMF3W5wEcd9T6ro5zyOiRMGQsEPSTco6U=
 		t.Run(fmt.Sprintf("Start%d", tt.start), func(t *testing.T) {
 			t.Run("NoCache", func(t *testing.T) {
 				fetcher, err := torchwood.NewTileFetcher("https://sum.golang.org/",
-					torchwood.WithTilePath(func(t tlog.Tile) string { return t.Path() }),
+					torchwood.WithTilePath(tlog.Tile.Path),
 					torchwood.WithTileFetcherLogger(slog.New(handler)))
 				if err != nil {
 					t.Fatal(err)
@@ -65,13 +65,14 @@ InZSsRXdXKTMF3W5wEcd9T6ro5zyOiRMGQsEPSTco6U=
 
 			t.Run("DirCache", func(t *testing.T) {
 				fetcher, err := torchwood.NewTileFetcher("https://sum.golang.org/",
-					torchwood.WithTilePath(func(t tlog.Tile) string { return t.Path() }),
+					torchwood.WithTilePath(tlog.Tile.Path),
 					torchwood.WithTileFetcherLogger(slog.New(handler)))
 				if err != nil {
 					t.Fatal(err)
 				}
 				dirCache, err := torchwood.NewPermanentCache(fetcher, t.TempDir(),
-					torchwood.WithPermanentCacheLogger(slog.New(handler)))
+					torchwood.WithPermanentCacheLogger(slog.New(handler)),
+					torchwood.WithPermanentCacheTilePath(tlog.Tile.Path))
 				if err != nil {
 					t.Fatal(err)
 				}
