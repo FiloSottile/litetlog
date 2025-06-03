@@ -10,12 +10,14 @@ require (
 	golang.org/x/mod v0.14.0
 	golang.org/x/net v0.18.0
 	golang.org/x/sync v0.5.0
+	lukechampine.com/blake3 v1.4.1
 	sigsum.org/sigsum-go v0.6.1
 )
 
 require (
 	github.com/VividCortex/ewma v1.2.0 // indirect
 	github.com/fatih/color v1.15.0 // indirect
+	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.19 // indirect
 	github.com/mattn/go-runewidth v0.0.15 // indirect
