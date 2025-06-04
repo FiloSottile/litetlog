@@ -1,12 +1,10 @@
-//go:build mpt
-
 package mpt
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
 	"math/bits"
+	"strings"
 )
 
 type Label struct {
@@ -42,15 +40,31 @@ func NewLabel(bitLen uint32, bytes [32]byte) (Label, error) {
 	return Label{bitLen, bytes}, nil
 }
 
+func (l Label) String() string {
+	if l == EmptyNodeLabel {
+		return "<empty>"
+	}
+	if l == RootLabel {
+		return "<root>"
+	}
+	var s strings.Builder
+	for i := range l.bitLen {
+		bit, _ := l.Bit(i)
+		s.WriteByte('0' + bit)
+	}
+	return s.String()
+}
+
 func (l Label) BitLen() uint32 {
 	return l.bitLen
 }
 
-func (l Label) Bytes() []byte {
-	b := make([]byte, 0, 4+32)
-	b = binary.BigEndian.AppendUint32(b, l.bitLen)
-	b = append(b, l.bytes[:]...)
-	return b
+func (l Label) IsLeaf() bool {
+	return l.bitLen == 256
+}
+
+func (l Label) Bytes() [32]byte {
+	return l.bytes
 }
 
 func (l Label) Bit(i uint32) (byte, error) {
@@ -64,6 +78,9 @@ func (l Label) Bit(i uint32) (byte, error) {
 
 // HasPrefix return whether prefix is equal to or a prefix of l.
 func (l Label) HasPrefix(prefix Label) bool {
+	if prefix == EmptyNodeLabel {
+		return false
+	}
 	if l.bitLen < prefix.bitLen {
 		return false
 	}
@@ -86,6 +103,7 @@ func LongestCommonPrefix(l1, l2 Label) Label {
 	var bytes [32]byte
 	for i := range l1.bytes {
 		n := bits.LeadingZeros8(l1.bytes[i] ^ l2.bytes[i])
+		n = min(n, int(l1.bitLen)-8*i, int(l2.bitLen)-8*i)
 		mask := byte(0xFF << (8 - n))
 		bytes[i] = l1.bytes[i] & mask
 		bitLen += uint32(n)
@@ -93,7 +111,6 @@ func LongestCommonPrefix(l1, l2 Label) Label {
 			break
 		}
 	}
-	bitLen = min(l1.bitLen, l2.bitLen, bitLen)
 	return Label{bitLen, bytes}
 }
 

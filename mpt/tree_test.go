@@ -1,11 +1,8 @@
-//go:build mpt
-
 package mpt_test
 
 import (
 	"encoding/binary"
 	"encoding/hex"
-	"errors"
 	"math/rand/v2"
 	"testing"
 
@@ -15,54 +12,53 @@ import (
 )
 
 func TestFullTree(t *testing.T) {
-	tree := NewTree(blake3.Sum256)
-	for n := range 1000 {
-		if err := Validate(tree); err != nil {
-			t.Fatalf("tree is invalid before inserting %d: %v", n, err)
-		}
+	store := NewMemoryStorage()
+	fatalIfErr(t, InitStorage(blake3.Sum256, store))
+	tree := NewTree(blake3.Sum256, store)
 
+	for n := range 1000 {
 		var label [32]byte
 		binary.LittleEndian.PutUint16(label[:], uint16(n))
-		value := tree.Hash(label[:])
-		leaf := tree.Leaf(label, value)
-
-		if err := tree.Insert(leaf); err != nil {
-			t.Fatalf("failed to insert leaf %d: %v", n, err)
-		}
+		value := blake3.Sum256(label[:])
+		fatalIfErr(t, tree.Insert(label, value))
 	}
-	if err := Validate(tree); err != nil {
-		t.Fatalf("tree is invalid after inserting 1000 leaves: %v", err)
-	}
-	rootHash := tree.Root.Hash
 
-	tree = NewTree(blake3.Sum256)
+	root, err := store.Load(RootLabel)
+	fatalIfErr(t, err)
+	rootHash := root.Hash
+
+	store = NewMemoryStorage()
+	fatalIfErr(t, InitStorage(blake3.Sum256, store))
+	tree = NewTree(blake3.Sum256, store)
+
 	for n := 999; n >= 0; n-- {
 		var label [32]byte
 		binary.LittleEndian.PutUint16(label[:], uint16(n))
-		value := tree.Hash(label[:])
-		leaf := tree.Leaf(label, value)
-
-		if err := tree.Insert(leaf); err != nil {
-			t.Fatalf("failed to insert leaf %d: %v", n, err)
-		}
-	}
-	if tree.Root.Hash != rootHash {
-		t.Fatalf("after inserting in reverse order: got %x, want %x", tree.Root.Hash, rootHash)
+		value := blake3.Sum256(label[:])
+		fatalIfErr(t, tree.Insert(label, value))
 	}
 
-	tree = NewTree(blake3.Sum256)
+	root, err = store.Load(RootLabel)
+	fatalIfErr(t, err)
+	if root.Hash != rootHash {
+		t.Fatalf("after inserting in reverse order: got %x, want %x", root.Hash, rootHash)
+	}
+
+	store = NewMemoryStorage()
+	fatalIfErr(t, InitStorage(blake3.Sum256, store))
+	tree = NewTree(blake3.Sum256, store)
+
 	for _, n := range rand.Perm(1000) {
 		var label [32]byte
 		binary.LittleEndian.PutUint16(label[:], uint16(n))
-		value := tree.Hash(label[:])
-		leaf := tree.Leaf(label, value)
-
-		if err := tree.Insert(leaf); err != nil {
-			t.Fatalf("failed to insert leaf %d: %v", n, err)
-		}
+		value := blake3.Sum256(label[:])
+		fatalIfErr(t, tree.Insert(label, value))
 	}
-	if tree.Root.Hash != rootHash {
-		t.Fatalf("after inserting in random order: got %x, want %x", tree.Root.Hash, rootHash)
+
+	root, err = store.Load(RootLabel)
+	fatalIfErr(t, err)
+	if root.Hash != rootHash {
+		t.Fatalf("after inserting in random order: got %x, want %x", root.Hash, rootHash)
 	}
 }
 
@@ -71,18 +67,20 @@ func TestAccumulated(t *testing.T) {
 	sink := blake3.New(32, nil)
 
 	for range 100 {
-		tree := NewTree(blake3.Sum256)
-		sink.Write(tree.Root.Hash[:])
+		store := NewMemoryStorage()
+		fatalIfErr(t, InitStorage(blake3.Sum256, store))
+		tree := NewTree(blake3.Sum256, store)
+		root, err := store.Load(RootLabel)
+		fatalIfErr(t, err)
+		sink.Write(root.Hash[:])
 		for range 1000 {
 			var label, value [32]byte
 			source.Read(label[:])
 			source.Read(value[:])
-			leaf := tree.Leaf(label, value)
-
-			if err := tree.Insert(leaf); err != nil {
-				t.Fatalf("failed to insert leaf: %v", err)
-			}
-			sink.Write(tree.Root.Hash[:])
+			fatalIfErr(t, tree.Insert(label, value))
+			root, err := store.Load(RootLabel)
+			fatalIfErr(t, err)
+			sink.Write(root.Hash[:])
 		}
 	}
 
@@ -93,65 +91,9 @@ func TestAccumulated(t *testing.T) {
 	}
 }
 
-func Validate(tree *Tree) error {
-	root := tree.Root
-	if root.Label != RootLabel {
-		return errors.New("root node has invalid label")
-	}
-	if root.Left.Label == EmptyNodeLabel && root.Right.Label == EmptyNodeLabel {
-		if root.Hash != tree.NodeHash(RootLabel, tree.Hash([]byte{0x00})) {
-			return errors.New("root node hash does not match empty value")
-		}
-		return nil
-	}
-	return validateNode(tree, root)
-}
-
-func validateNode(tree *Tree, node *Node) error {
-	labelBytes := node.Label.Bytes()
-	label, err := NewLabel(node.Label.BitLen(), ([32]byte)(labelBytes[4:]))
+func fatalIfErr(t *testing.T, err error) {
 	if err != nil {
-		return err
+		t.Helper()
+		t.Fatal(err)
 	}
-	if node.Label != label {
-		return errors.New("node label is not valid")
-	}
-
-	if node.Label.BitLen() == 256 {
-		if node.Left != nil || node.Right != nil {
-			return errors.New("leaf node has children")
-		}
-		return nil
-	}
-
-	if node.Left.Label != EmptyNodeLabel {
-		if node.Left.Label.SideOf(node.Label) != Left {
-			return errors.New("left child is not on the left side of the label")
-		}
-		if err := validateNode(tree, node.Left); err != nil {
-			return err
-		}
-	} else {
-		if node.Label != RootLabel {
-			return errors.New("left child is empty but node is not root")
-		}
-	}
-	if node.Right.Label != EmptyNodeLabel {
-		if node.Right.Label.SideOf(node.Label) != Right {
-			return errors.New("right child is not on the right side of the label")
-		}
-		if err := validateNode(tree, node.Right); err != nil {
-			return err
-		}
-	} else {
-		if node.Label != RootLabel {
-			return errors.New("right child is empty but node is not root")
-		}
-	}
-
-	if node.Hash != tree.NodeHash(node.Label, tree.InternalNodeValue(node.Left, node.Right)) {
-		return errors.New("node hash does not match children")
-	}
-
-	return nil
 }
