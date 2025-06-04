@@ -14,9 +14,12 @@ package mpt
 import (
 	"errors"
 	"slices"
-
-	"lukechampine.com/blake3"
 )
+
+type Tree struct {
+	Root *Node
+	hash func([]byte) [32]byte
+}
 
 type Node struct {
 	Label Label
@@ -30,25 +33,23 @@ type Node struct {
 	Hash [32]byte
 }
 
-func Hash(v []byte) [32]byte {
-	return blake3.Sum256(v)
+func (t *Tree) nodeHash(label Label, value [32]byte) [32]byte {
+	labelHash := t.hash(label.Bytes())
+	return t.hash(append(value[:], labelHash[:]...))
 }
 
-func nodeHash(label Label, value [32]byte) [32]byte {
-	labelHash := Hash(label.Bytes())
-	return Hash(append(value[:], labelHash[:]...))
+func (t *Tree) internalNodeValue(left, right *Node) [32]byte {
+	return t.hash(append(left.Hash[:], right.Hash[:]...))
 }
 
-func internalNodeValue(left, right *Node) [32]byte {
-	return Hash(append(left.Hash[:], right.Hash[:]...))
+func NewTree(hash func([]byte) [32]byte) *Tree {
+	t := &Tree{hash: hash}
+	h := t.nodeHash(RootLabel, t.hash([]byte{0x00}))
+	t.Root = &Node{Label: RootLabel, Hash: h, Left: t.newEmptyNode(), Right: t.newEmptyNode()}
+	return t
 }
 
-func NewRoot() *Node {
-	h := nodeHash(RootLabel, Hash([]byte{0x00}))
-	return &Node{Label: RootLabel, Hash: h, Left: newEmptyNode(), Right: newEmptyNode()}
-}
-
-func newEmptyNode() *Node {
+func (t *Tree) newEmptyNode() *Node {
 	// It's unclear if the nested nodeHash is intentional. If it's not, it might
 	// be because the akd_core Configuration method that returns the empty root
 	// value is called empty_root_value, while the one that returns the empty
@@ -58,18 +59,18 @@ func newEmptyNode() *Node {
 	// H(EmptyNodeLabel || H(0x00)).
 	//
 	// This is harmless, so we match it to interoperate with akd.
-	h := nodeHash(EmptyNodeLabel, nodeHash(EmptyNodeLabel, Hash([]byte{0x00})))
+	h := t.nodeHash(EmptyNodeLabel, t.nodeHash(EmptyNodeLabel, t.hash([]byte{0x00})))
 	return &Node{Label: EmptyNodeLabel, Hash: h}
 }
 
-func NewLeaf(label, value [32]byte) *Node {
+func (t *Tree) Leaf(label, value [32]byte) *Node {
 	l := Label{256, label}
-	return &Node{Label: l, Hash: nodeHash(l, value)}
+	return &Node{Label: l, Hash: t.nodeHash(l, value)}
 }
 
 // newParentNode creates a new internal (or root) node that replaces the branch
 // node with a node that has branch and leaf as children.
-func newParentNode(branch, leaf *Node) (*Node, error) {
+func (t *Tree) newParentNode(branch, leaf *Node) (*Node, error) {
 	if leaf.Label.BitLen() != 256 {
 		return nil, errors.New("leaf is not a leaf node")
 	}
@@ -86,7 +87,7 @@ func newParentNode(branch, leaf *Node) (*Node, error) {
 		case branch.Right.Label != EmptyNodeLabel:
 			branch = branch.Right
 		default:
-			branch = newEmptyNode()
+			branch = t.newEmptyNode()
 		}
 	}
 	parent := &Node{Label: label}
@@ -100,34 +101,36 @@ func newParentNode(branch, leaf *Node) (*Node, error) {
 	default:
 		return nil, errors.New("internal error: leaf is not on either side of prefix")
 	}
-	parent.Hash = nodeHash(label, internalNodeValue(parent.Left, parent.Right))
+	parent.Hash = t.nodeHash(label, t.internalNodeValue(parent.Left, parent.Right))
 	return parent, nil
 }
 
-func Insert(root, leaf *Node) (*Node, error) {
-	if root.Label != RootLabel {
-		return nil, errors.New("root is not a root node")
-	}
+func (t *Tree) Insert(leaf *Node) error {
 	if leaf.Label.BitLen() != 256 {
-		return nil, errors.New("leaf is not a leaf node")
+		return errors.New("leaf is not a leaf node")
 	}
 
-	if leaf.Label.SideOf(root.Label) == Left && root.Left.Label == EmptyNodeLabel ||
-		leaf.Label.SideOf(root.Label) == Right && root.Right.Label == EmptyNodeLabel {
+	if leaf.Label.SideOf(t.Root.Label) == Left && t.Root.Left.Label == EmptyNodeLabel ||
+		leaf.Label.SideOf(t.Root.Label) == Right && t.Root.Right.Label == EmptyNodeLabel {
 		// The tree is empty or we are filling in the empty side of the root node.
-		return newParentNode(root, leaf)
+		newRoot, err := t.newParentNode(t.Root, leaf)
+		if err != nil {
+			return err
+		}
+		t.Root = newRoot
+		return nil
 	}
 
 	// Traverse the tree until we find the first node that is not a prefix of
 	// the leaf, which is the point where we will branch the tree and insert the
 	// leaf. Keep track of the path we took to get there so we can update the
 	// hashes of the nodes we passed through.
-	node := root
+	node := t.Root
 	var path []*Node
 	var parentPointer **Node
 	for leaf.Label.HasPrefix(node.Label) {
 		if node.Label == leaf.Label {
-			return nil, errors.New("leaf already exists in tree")
+			return errors.New("leaf already exists in tree")
 		}
 		switch leaf.Label.SideOf(node.Label) {
 		case Left:
@@ -141,16 +144,16 @@ func Insert(root, leaf *Node) (*Node, error) {
 		}
 	}
 
-	node, err := newParentNode(node, leaf)
+	node, err := t.newParentNode(node, leaf)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	*parentPointer = node
 
 	slices.Reverse(path)
 	for _, node := range path {
-		node.Hash = nodeHash(node.Label, internalNodeValue(node.Left, node.Right))
+		node.Hash = t.nodeHash(node.Label, t.internalNodeValue(node.Left, node.Right))
 	}
 
-	return root, nil
+	return nil
 }
