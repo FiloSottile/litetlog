@@ -9,7 +9,7 @@ import (
 	"math/rand/v2"
 	"testing"
 
-	"golang.org/x/crypto/sha3"
+	"lukechampine.com/blake3"
 
 	. "filippo.io/torchwood/mpt"
 )
@@ -73,13 +73,13 @@ func TestFullTree(t *testing.T) {
 }
 
 func TestAccumulated(t *testing.T) {
-	source := sha3.NewShake128()
-	sink := sha3.NewShake128()
+	source := blake3.New(0, nil).XOF()
+	sink := blake3.New(32, nil)
 
 	for range 100 {
 		root := NewRoot()
 		sink.Write(root.Hash[:])
-		for n := range 1000 {
+		for range 1000 {
 			var label, value [32]byte
 			source.Read(label[:])
 			source.Read(value[:])
@@ -88,15 +88,14 @@ func TestAccumulated(t *testing.T) {
 			var err error
 			root, err = Insert(root, leaf)
 			if err != nil {
-				t.Fatalf("failed to insert leaf %d: %v", n, err)
+				t.Fatalf("failed to insert leaf: %v", err)
 			}
 			sink.Write(root.Hash[:])
 		}
 	}
 
-	exp := "f561f245f61e4a1a5d8f9c5d585db886336117fab38a2f9e86f1533d88ee1112"
-	result := make([]byte, 32)
-	sink.Read(result)
+	exp := "dfa5cc5758518f612c53d3434688996895373f29e2df61b7f7c26f0e25b095eb"
+	result := sink.Sum(nil)
 	if hex.EncodeToString(result) != exp {
 		t.Fatalf("expected hash %s, got %x", exp, result)
 	}
@@ -107,7 +106,7 @@ func Validate(root *Node) error {
 		return errors.New("root node has invalid label")
 	}
 	if root.Left.Label == EmptyNodeLabel && root.Right.Label == EmptyNodeLabel {
-		if root.Hash != NodeHash(RootLabel, EmptyValue) {
+		if root.Hash != NodeHash(RootLabel, Hash([]byte{0x00})) {
 			return errors.New("root node hash does not match empty value")
 		}
 		return nil

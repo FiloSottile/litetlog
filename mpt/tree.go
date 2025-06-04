@@ -34,10 +34,6 @@ func Hash(v []byte) [32]byte {
 	return blake3.Sum256(v)
 }
 
-// EmptyValue is the value of the root node of an empty tree, or of the sibling
-// of the only child of the root node (with label [EmptyNodeLabel]).
-var EmptyValue = Hash([]byte{0x00})
-
 func nodeHash(label Label, value [32]byte) [32]byte {
 	labelHash := Hash(label.Bytes())
 	return Hash(append(value[:], labelHash[:]...))
@@ -48,12 +44,22 @@ func internalNodeValue(left, right *Node) [32]byte {
 }
 
 func NewRoot() *Node {
-	h := nodeHash(RootLabel, EmptyValue)
+	h := nodeHash(RootLabel, Hash([]byte{0x00}))
 	return &Node{Label: RootLabel, Hash: h, Left: newEmptyNode(), Right: newEmptyNode()}
 }
 
 func newEmptyNode() *Node {
-	return &Node{Label: EmptyNodeLabel, Hash: nodeHash(EmptyNodeLabel, EmptyValue)}
+	// It's unclear if the nested nodeHash is intentional. If it's not, it might
+	// be because the akd_core Configuration method that returns the empty root
+	// value is called empty_root_value, while the one that returns the empty
+	// sibling value is called empty_node_hash despite both returning values.
+	//
+	// Anyway, empty_root_value returns H(0x00) while empty_node_hash returns
+	// H(EmptyNodeLabel || H(0x00)).
+	//
+	// This is harmless, so we match it to interoperate with akd.
+	h := nodeHash(EmptyNodeLabel, nodeHash(EmptyNodeLabel, Hash([]byte{0x00})))
+	return &Node{Label: EmptyNodeLabel, Hash: h}
 }
 
 func NewLeaf(label, value [32]byte) *Node {
