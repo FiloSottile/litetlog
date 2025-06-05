@@ -22,11 +22,20 @@ var EmptyNodeLabel = Label{0, [32]byte{
 	0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
 }}
 
-func NewLabel(bitLen uint32, bytes [32]byte) (Label, error) {
+func NewLabel(bitLen uint32, label []byte) (Label, error) {
 	if bitLen > 256 {
 		return Label{}, errors.New("bit length exceeds maximum of 256 bits")
 	}
-	for i, b := range bytes {
+	if len(label) > 32 {
+		return Label{}, errors.New("byte slice exceeds maximum length of 32 bytes")
+	}
+	if len(label) < int(bitLen+7)/8 {
+		return Label{}, errors.New("byte slice is too short for the given bit length")
+	}
+	if bitLen == 0 && bytes.Equal(label, EmptyNodeLabel.bytes[:]) {
+		return EmptyNodeLabel, nil
+	}
+	for i, b := range label {
 		switch {
 		case i == int(bitLen)/8 && bitLen%8 != 0:
 			b = b << (bitLen % 8)
@@ -37,7 +46,9 @@ func NewLabel(bitLen uint32, bytes [32]byte) (Label, error) {
 			}
 		}
 	}
-	return Label{bitLen, bytes}, nil
+	var b [32]byte
+	copy(b[:], label)
+	return Label{bitLen, b}, nil
 }
 
 func (l Label) String() string {
@@ -63,8 +74,8 @@ func (l Label) IsLeaf() bool {
 	return l.bitLen == 256
 }
 
-func (l Label) Bytes() [32]byte {
-	return l.bytes
+func (l Label) Bytes() []byte {
+	return l.bytes[:]
 }
 
 func (l Label) Bit(i uint32) (byte, error) {

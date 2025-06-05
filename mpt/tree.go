@@ -10,6 +10,7 @@
 package mpt
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -118,14 +119,14 @@ func NewTree(h HashFunc, s Storage) *Tree {
 	return &Tree{h: h, s: s}
 }
 
-func InitStorage(h HashFunc, s Storage) error {
-	return s.Store(newEmptyNode(h), newRootNode(h))
+func InitStorage(ctx context.Context, h HashFunc, s Storage) error {
+	return s.Store(ctx, newEmptyNode(h), newRootNode(h))
 }
 
-func (t *Tree) Insert(label, value [32]byte) error {
+func (t *Tree) Insert(ctx context.Context, label, value [32]byte) error {
 	leaf := newLeaf(t.h, label, value)
 
-	path, err := t.s.LoadPath(leaf.Label)
+	path, err := t.s.LoadPath(ctx, leaf.Label)
 	if err != nil {
 		return err
 	}
@@ -141,5 +142,5 @@ func (t *Tree) Insert(label, value [32]byte) error {
 		changed = append(changed, node)
 	}
 
-	return t.s.Store(changed...)
+	return t.s.Store(ctx, changed...)
 }
