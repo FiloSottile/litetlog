@@ -3,7 +3,6 @@ module filippo.io/torchwood
 go 1.23.0
 
 require (
-	crawshaw.io/sqlite v0.3.3-0.20220618202545-d1964889ea3c
 	github.com/cheggaaa/pb/v3 v3.1.5
 	github.com/rogpeppe/go-internal v1.11.0
 	golang.org/x/crypto v0.38.0

@@ -8,12 +8,12 @@ import (
 	"log"
 	"os"
 
-	"crawshaw.io/sqlite"
-	"crawshaw.io/sqlite/sqlitex"
 	"filippo.io/torchwood/internal/witness"
 	"golang.org/x/mod/sumdb/note"
 	sigsum "sigsum.org/sigsum-go/pkg/crypto"
 	"sigsum.org/sigsum-go/pkg/merkle"
+	"zombiezen.com/go/sqlite"
+	"zombiezen.com/go/sqlite/sqlitex"
 )
 
 func usage() {

@@ -25,11 +25,11 @@ import (
 	"syscall"
 	"time"
 
-	"crawshaw.io/sqlite"
-	"crawshaw.io/sqlite/sqlitex"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/net/http2"
+	"zombiezen.com/go/sqlite"
+	"zombiezen.com/go/sqlite/sqlitex"
 
 	"filippo.io/torchwood/internal/slogconsole"
 	"filippo.io/torchwood/internal/witness"

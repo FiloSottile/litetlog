@@ -10,10 +10,10 @@ import (
 	"sync"
 	"testing"
 
-	"crawshaw.io/sqlite/sqlitex"
 	"golang.org/x/mod/sumdb/note"
 	"golang.org/x/mod/sumdb/tlog"
 	"sigsum.org/sigsum-go/pkg/merkle"
+	"zombiezen.com/go/sqlite/sqlitex"
 )
 
 func TestRace(t *testing.T) {
